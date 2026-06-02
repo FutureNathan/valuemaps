@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { TENSION_PAIRS, WANTS } from "@/lib/values";
+import { tPair, tUI, tWantLong, type Lang } from "@/lib/i18n";
 import type { Submission } from "@/lib/types";
 
 interface ValueFormProps {
@@ -12,6 +13,7 @@ interface ValueFormProps {
   existing: Submission | null;
   onClose: () => void;
   onSubmit: (sub: Submission) => Promise<void>;
+  lang: Lang;
 }
 
 export default function ValueForm({
@@ -22,6 +24,7 @@ export default function ValueForm({
   existing,
   onClose,
   onSubmit,
+  lang,
 }: ValueFormProps) {
   const [wants, setWants] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
@@ -63,10 +66,8 @@ export default function ValueForm({
       <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
         <div className="modal-head">
           <div>
-            <h2>{existing ? "Update what you want" : "What do you want?"}</h2>
-            <p className="modal-sub">
-              Pick everything you believe in — even hopes people say you can&apos;t have together.
-            </p>
+            <h2>{existing ? tUI(lang, "formTitleUpdate") : tUI(lang, "formTitleNew")}</h2>
+            <p className="modal-sub">{tUI(lang, "formSubtitle")}</p>
           </div>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
             ✕
@@ -74,14 +75,14 @@ export default function ValueForm({
         </div>
 
         <div className="field-block">
-          <div className="field-label">For</div>
+          <div className="field-label">{tUI(lang, "formFor")}</div>
           {regionId ? (
-            <div className="loc-pill">{regionName ?? "Selected place"}</div>
+            <div className="loc-pill">{regionName ?? tUI(lang, "selectedPlace")}</div>
           ) : (
             <div className="loc-empty">
-              <span>Pick a place first.</span>
+              <span>{tUI(lang, "formPick")}</span>
               <button className="ghost-btn small" onClick={onClose}>
-                Close &amp; tap the globe
+                {tUI(lang, "formClose")}
               </button>
             </div>
           )}
@@ -98,7 +99,7 @@ export default function ValueForm({
                 onClick={() => toggle(w.id)}
               >
                 <span className="want-dot" style={{ background: w.color }} />
-                {w.label}
+                {tWantLong(lang, w.id, w.label)}
               </button>
             );
           })}
@@ -106,15 +107,20 @@ export default function ValueForm({
 
         {bothHeld && (
           <div className="both-note">
-            You want <strong>{bothHeld.label}</strong>. Most “either/or” debates are false choices —
-            this map is here to prove it.
+            {tUI(lang, "bothNotePre")}
+            <strong>{tPair(lang, bothHeld.id, bothHeld.label)}</strong>
+            {tUI(lang, "bothNotePost")}
           </div>
         )}
 
         <button className="primary-btn" disabled={!regionId || saving} onClick={submit}>
-          {saving ? "Saving…" : existing ? "Update what I want" : "Add what I want"}
+          {saving
+            ? tUI(lang, "formSaving")
+            : existing
+            ? tUI(lang, "formUpdate")
+            : tUI(lang, "formAdd")}
         </button>
-        <p className="fine-print">Only anonymous totals are kept for each place — never individual answers.</p>
+        <p className="fine-print">{tUI(lang, "formFine")}</p>
       </div>
     </div>
   );

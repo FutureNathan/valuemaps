@@ -33,6 +33,18 @@ import {
   wantShare,
 } from "@/lib/aggregate";
 import type { Aggregate, RegionAggregates, Submission } from "@/lib/types";
+import {
+  tMetric,
+  tMetricHigh,
+  tMetricLow,
+  tPair,
+  tSource,
+  tUI,
+  tWantLong,
+  tWorldName,
+  tWorldTag,
+  type Lang,
+} from "@/lib/i18n";
 
 type Country = Feature<Geometry, GeoJsonProperties>;
 type ReferenceData = Record<string, Record<string, Record<string, number>>>;
@@ -67,6 +79,7 @@ export default function App() {
   const [satellite, setSatellite] = useState(false);
   const [overlay, setOverlay] = useState(0.5);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [lang, setLang] = useState<Lang>("en");
   const [focus, setFocus] = useState<FocusTarget | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -84,6 +97,7 @@ export default function App() {
   const availableSources = world.hasReference ? SOURCES : SOURCES.filter((s) => s.kind === "community");
   const source = SOURCE_BY_ID[sourceId] ?? SOURCE_BY_ID.community;
   const metric = source.metrics.find((m) => m.id === metricId) ?? source.metrics[0];
+  const t = (k: string) => tUI(lang, k);
 
   const applyWorldGeo = useCallback((id: string) => {
     const w = WORLD_BY_ID[id];
@@ -164,6 +178,8 @@ export default function App() {
       if (typeof prefs.satellite === "boolean") setSatellite(prefs.satellite);
       if (typeof prefs.overlay === "number") setOverlay(prefs.overlay);
       if (typeof prefs.autoRotate === "boolean") setAutoRotate(prefs.autoRotate);
+      if (prefs.lang === "en" || prefs.lang === "es") setLang(prefs.lang);
+      else if (window.navigator?.language?.toLowerCase().startsWith("es")) setLang("es");
     } catch {}
     prefsLoaded.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -290,9 +306,12 @@ export default function App() {
   useEffect(() => {
     if (!prefsLoaded.current) return;
     try {
-      localStorage.setItem("valuemaps:prefs", JSON.stringify({ satellite, overlay, autoRotate }));
+      localStorage.setItem(
+        "valuemaps:prefs",
+        JSON.stringify({ satellite, overlay, autoRotate, lang })
+      );
     } catch {}
-  }, [satellite, overlay, autoRotate]);
+  }, [satellite, overlay, autoRotate, lang]);
 
   function onSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
@@ -338,9 +357,14 @@ export default function App() {
     // [next, prev] so the top corner always advances Earth → Moon → Mars → Earth.
     return [order[(i + 1) % 3], order[(i + 2) % 3]].map((id) => {
       const w = WORLD_BY_ID[id];
-      return { id: w.id, name: w.name.replace(/^The /, ""), inner: w.body.inner, outer: w.body.outer };
+      return {
+        id: w.id,
+        name: tWorldName(lang, w.id, w.name.replace(/^The /, "")),
+        inner: w.body.inner,
+        outer: w.body.outer,
+      };
     });
-  }, [worldId]);
+  }, [worldId, lang]);
 
   const selName = selectedId ? namesRef.current.get(selectedId) ?? null : null;
   const selectedAgg = selectedId ? realFor(selectedId) : undefined;
@@ -371,7 +395,7 @@ export default function App() {
 
       {collapsed && (
         <button className="sidebar-open-btn" onClick={() => setCollapsed(false)} aria-label="Open menu">
-          <Peek name={selName} value={selValue} source={source} metric={metric} />
+          <Peek name={selName} value={selValue} source={source} metric={metric} lang={lang} />
           <span className="reopen-caret">›</span>
         </button>
       )}
@@ -384,10 +408,10 @@ export default function App() {
           <div className="head-content">
             <div className="brand">
               <h1>Value Maps</h1>
-              <p>{world.tagline}</p>
+              <p>{tWorldTag(lang, world.id, world.tagline)}</p>
             </div>
             <div className="mini-head">
-              <Peek name={selName} value={selValue} source={source} metric={metric} />
+              <Peek name={selName} value={selValue} source={source} metric={metric} lang={lang} />
             </div>
           </div>
           <button
@@ -404,6 +428,15 @@ export default function App() {
         </div>
 
         <div className="sidebar-body">
+          <div className="lang-toggle">
+            <button className={lang === "en" ? "on" : ""} onClick={() => setLang("en")}>
+              EN
+            </button>
+            <button className={lang === "es" ? "on" : ""} onClick={() => setLang("es")}>
+              ES
+            </button>
+          </div>
+
           <div className="world-tabs">
             {WORLDS.map((w) => (
               <button
@@ -411,7 +444,7 @@ export default function App() {
                 className={`world-tab ${w.id === worldId ? "on" : ""}`}
                 onClick={() => switchWorld(w.id)}
               >
-                {w.name.replace(/^The /, "")}
+                {tWorldName(lang, w.id, w.name.replace(/^The /, ""))}
               </button>
             ))}
           </div>
@@ -421,7 +454,7 @@ export default function App() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={onSearchKeyDown}
-              placeholder={world.kind === "countries" ? "Search a country…" : "Search a place…"}
+              placeholder={world.kind === "countries" ? t("searchCountry") : t("searchPlace")}
               aria-label="Search a place"
               autoComplete="off"
             />
@@ -440,11 +473,9 @@ export default function App() {
 
           <section className="block region">
             {!selectedId ? (
-              <div className="hint">
-                Tap any {world.kind === "countries" ? "country" : "place"} to see its values.
-              </div>
+              <div className="hint">{world.kind === "countries" ? t("tapCountry") : t("tapPlace")}</div>
             ) : source.kind === "community" ? (
-              <CommunityPanel name={selName} agg={selectedAgg} />
+              <CommunityPanel name={selName} agg={selectedAgg} lang={lang} />
             ) : (
               <ReferencePanel
                 name={selName}
@@ -453,6 +484,7 @@ export default function App() {
                 referenceData={referenceData}
                 activeMetricId={metricId}
                 onPickMetric={setMetricId}
+                lang={lang}
               />
             )}
           </section>
@@ -460,21 +492,21 @@ export default function App() {
           <section className="block">
             <div className="control-row">
               <label className="ctl">
-                <span>Data</span>
+                <span>{t("data")}</span>
                 <select value={sourceId} onChange={(e) => pickSource(e.target.value)}>
                   {availableSources.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.label}
+                      {tSource(lang, s)}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="ctl">
-                <span>Color by</span>
+                <span>{t("colorBy")}</span>
                 <select value={metricId} onChange={(e) => setMetricId(e.target.value)}>
                   {source.metrics.map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.label}
+                      {tMetric(lang, source, m)}
                     </option>
                   ))}
                 </select>
@@ -482,13 +514,13 @@ export default function App() {
             </div>
             <div className="legend-bar" style={{ background: legendGradient(metric) }} />
             <div className="legend-ends">
-              <span>{metric.low}</span>
-              <span>{metric.high}</span>
+              <span>{tMetricLow(lang, source, metric)}</span>
+              <span>{tMetricHigh(lang, source, metric)}</span>
             </div>
           </section>
 
           <button className="primary-btn" onClick={() => setFormOpen(true)}>
-            {local ? "Update what you want" : "Share what you want"}
+            {local ? t("update") : t("share")}
           </button>
 
           <section className="block">
@@ -497,7 +529,7 @@ export default function App() {
               onClick={() => setOptionsOpen((o) => !o)}
               aria-expanded={optionsOpen}
             >
-              <span>Options &amp; data source</span>
+              <span>{t("options")}</span>
               <span>{optionsOpen ? "▾" : "▸"}</span>
             </button>
             {optionsOpen && (
@@ -508,11 +540,11 @@ export default function App() {
                     checked={satellite}
                     onChange={(e) => setSatellite(e.target.checked)}
                   />
-                  <span>Satellite imagery</span>
+                  <span>{t("satellite")}</span>
                 </label>
                 {satellite && (
                   <label className="slider-row">
-                    <span>Data&nbsp;↔&nbsp;terrain</span>
+                    <span>{t("dataTerrain")}</span>
                     <input
                       type="range"
                       min={0}
@@ -529,23 +561,23 @@ export default function App() {
                     checked={autoRotate}
                     onChange={(e) => setAutoRotate(e.target.checked)}
                   />
-                  <span>Auto-spin</span>
+                  <span>{t("autospin")}</span>
                 </label>
                 {source.kind === "reference" && source.attribution && (
                   <a className="source-credit" href={source.url} target="_blank" rel="noreferrer">
-                    Data: {source.attribution}
+                    {t("sourcePrefix")} {source.attribution}
                     {source.year ? ` · ${source.year}` : ""} ↗
                   </a>
                 )}
                 <div className="foot">
                   <span className={`dot ${storageLive ? "dot-live" : "dot-demo"}`} />
                   {storageLive
-                    ? `Live & shared${
+                    ? `${t("live")}${
                         backend === "supabase" ? " · Supabase" : backend === "upstash" ? " · Upstash" : ""
                       }.`
-                    : "Demo mode — saved on this device."}
+                    : t("demo")}
                 </div>
-                <span className="travel-hint">Tip: tap a faint world in space to travel there.</span>
+                <span className="travel-hint">{t("tipTravel")}</span>
               </div>
             )}
           </section>
@@ -560,6 +592,7 @@ export default function App() {
         existing={local?.submission ?? null}
         onClose={() => setFormOpen(false)}
         onSubmit={handleSubmit}
+        lang={lang}
       />
     </div>
   );
@@ -572,26 +605,30 @@ function Peek({
   value,
   source,
   metric,
+  lang,
 }: {
   name: string | null;
   value: number | null;
   source: DataSource;
   metric: Metric;
+  lang: Lang;
 }) {
   return (
     <div className="mini-legend">
-      <div className="mini-legend-title">{name ?? `${source.label} · ${metric.label}`}</div>
+      <div className="mini-legend-title">
+        {name ?? `${tSource(lang, source)} · ${tMetric(lang, source, metric)}`}
+      </div>
       <div className="legend-bar" style={{ background: legendGradient(metric) }} />
       <div className="legend-ends">
         {name ? (
           <>
-            <span>{metric.label}</span>
+            <span>{tMetric(lang, source, metric)}</span>
             <span className="metric-val">{value != null ? formatValue(metric, value) : "—"}</span>
           </>
         ) : (
           <>
-            <span>{metric.low}</span>
-            <span>{metric.high}</span>
+            <span>{tMetricLow(lang, source, metric)}</span>
+            <span>{tMetricHigh(lang, source, metric)}</span>
           </>
         )}
       </div>
@@ -602,9 +639,11 @@ function Peek({
 function CommunityPanel({
   name,
   agg,
+  lang,
 }: {
   name: string | null;
   agg: Aggregate | undefined;
+  lang: Lang;
 }) {
   const count = agg?.count ?? 0;
   const wants = topWants(agg, 6);
@@ -617,10 +656,10 @@ function CommunityPanel({
         <h2>{name}</h2>
         {count > 0 ? (
           <span className="pill pill-live">
-            {count} voice{count === 1 ? "" : "s"}
+            {count} {count === 1 ? tUI(lang, "voice") : tUI(lang, "voices")}
           </span>
         ) : (
-          <span className="pill pill-sample">no responses yet</span>
+          <span className="pill pill-sample">{tUI(lang, "noResponses")}</span>
         )}
       </div>
 
@@ -628,18 +667,18 @@ function CommunityPanel({
         <>
           {pairDef && pair && (
             <div className="both-highlight">
-              <strong>{Math.round(pair.share)}%</strong> here want both {pairDef.label} — not one
-              or the other.
+              <strong>{Math.round(pair.share)}%</strong> {tUI(lang, "bothMid")}{" "}
+              {tPair(lang, pairDef.id, pairDef.label)} {tUI(lang, "bothEnd")}
             </div>
           )}
-          <div className="block-title">Most want here</div>
+          <div className="block-title">{tUI(lang, "mostWant")}</div>
           <div className="want-bars">
             {wants.map((w) => {
               const def = WANT_BY_ID[w.id];
               return (
                 <div className="want-bar" key={w.id}>
                   <div className="readout-top">
-                    <span>{def?.label ?? w.id}</span>
+                    <span>{tWantLong(lang, w.id, def?.label ?? w.id)}</span>
                     <span className="metric-val">{Math.round(w.share)}%</span>
                   </div>
                   <div className="bar-track">
@@ -654,7 +693,7 @@ function CommunityPanel({
           </div>
         </>
       ) : (
-        <div className="hint">Be the first to share what people here want.</div>
+        <div className="hint">{tUI(lang, "beFirst")}</div>
       )}
     </>
   );
@@ -667,6 +706,7 @@ function ReferencePanel({
   referenceData,
   activeMetricId,
   onPickMetric,
+  lang,
 }: {
   name: string | null;
   regionId: string;
@@ -674,6 +714,7 @@ function ReferencePanel({
   referenceData: ReferenceData;
   activeMetricId: string;
   onPickMetric: (id: string) => void;
+  lang: Lang;
 }) {
   const row = referenceData[source.id]?.[regionId];
   const hasData = row && Object.keys(row).length > 0;
@@ -681,7 +722,7 @@ function ReferencePanel({
     <>
       <div className="region-head">
         <h2>{name}</h2>
-        <span className="pill pill-ref">{source.label}</span>
+        <span className="pill pill-ref">{tSource(lang, source)}</span>
       </div>
 
       {hasData ? (
@@ -696,7 +737,7 @@ function ReferencePanel({
                 onClick={() => onPickMetric(m.id)}
               >
                 <div className="readout-top">
-                  <span>{m.label}</span>
+                  <span>{tMetric(lang, source, m)}</span>
                   <span className="metric-val">{has ? formatValue(m, v as number) : "—"}</span>
                 </div>
                 <div className="track">
@@ -716,7 +757,11 @@ function ReferencePanel({
           })}
         </div>
       ) : (
-        <div className="hint">No data for {name} in this dataset.</div>
+        <div className="hint">
+          {tUI(lang, "noDataPre")}
+          {name}
+          {tUI(lang, "noDataPost")}
+        </div>
       )}
     </>
   );

@@ -529,6 +529,12 @@ button {
   color: var(--text);
 }
 
+.disclosure-caret {
+  font-size: 18px;
+  line-height: 1;
+  color: var(--muted);
+}
+
 .options {
   display: flex;
   flex-direction: column;

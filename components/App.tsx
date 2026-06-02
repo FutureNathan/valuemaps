@@ -176,7 +176,6 @@ export default function App() {
     try {
       const prefs = JSON.parse(localStorage.getItem("valuemaps:prefs") || "{}");
       if (typeof prefs.satellite === "boolean") setSatellite(prefs.satellite);
-      if (typeof prefs.overlay === "number") setOverlay(prefs.overlay);
       if (typeof prefs.autoRotate === "boolean") setAutoRotate(prefs.autoRotate);
       if (prefs.lang === "en" || prefs.lang === "es") setLang(prefs.lang);
       else if (window.navigator?.language?.toLowerCase().startsWith("es")) setLang("es");
@@ -251,7 +250,18 @@ export default function App() {
 
   const handleSelect = useCallback((id: string | null) => {
     setSelectedId(id);
-    if (id) setSidebarOpen(true);
+    if (!id) {
+      // Tapping empty space = clicking off the menu: tuck it away.
+      setCollapsed(true);
+      setSidebarOpen(false);
+    }
+  }, []);
+
+  // Interacting with the globe (drag / zoom) minimizes the menu so the map is
+  // easy to view — on desktop/tablet (collapse) and mobile (close sheet).
+  const handleInteract = useCallback(() => {
+    setCollapsed(true);
+    setSidebarOpen(false);
   }, []);
 
   const handleSubmit = useCallback(async (sub: Submission) => {
@@ -306,12 +316,10 @@ export default function App() {
   useEffect(() => {
     if (!prefsLoaded.current) return;
     try {
-      localStorage.setItem(
-        "valuemaps:prefs",
-        JSON.stringify({ satellite, overlay, autoRotate, lang })
-      );
+      // overlay is intentionally not persisted — it always starts centered (50%).
+      localStorage.setItem("valuemaps:prefs", JSON.stringify({ satellite, autoRotate, lang }));
     } catch {}
-  }, [satellite, overlay, autoRotate, lang]);
+  }, [satellite, autoRotate, lang]);
 
   function onSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
@@ -386,6 +394,7 @@ export default function App() {
           style={world.style}
           backgroundBodies={backgroundBodies}
           onSwitchWorld={switchWorld}
+          onInteract={handleInteract}
           initialRotation={world.initialRotation}
           textureSrc={satellite ? `/tex-${worldId}.jpg` : null}
           overlay={overlay}
@@ -530,7 +539,7 @@ export default function App() {
               aria-expanded={optionsOpen}
             >
               <span>{t("options")}</span>
-              <span>{optionsOpen ? "▾" : "▸"}</span>
+              <span className="disclosure-caret">{optionsOpen ? "▾" : "▸"}</span>
             </button>
             {optionsOpen && (
               <div className="options">

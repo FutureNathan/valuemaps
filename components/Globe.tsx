@@ -42,6 +42,7 @@ interface GlobeProps {
   style: GlobeStyle;
   backgroundBodies: BackgroundBody[];
   onSwitchWorld: (id: string) => void;
+  onInteract: () => void;
   initialRotation: [number, number, number];
   textureSrc: string | null;
   overlay: number;
@@ -76,6 +77,7 @@ export default function Globe({
   style,
   backgroundBodies,
   onSwitchWorld,
+  onInteract,
   initialRotation,
   textureSrc,
   overlay,
@@ -101,7 +103,7 @@ export default function Globe({
   const lastInteraction = useRef(0);
   const tween = useRef<{ from: [number, number, number]; to: [number, number, number]; start: number; dur: number } | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
-  const gesture = useRef({ moved: 0, downAt: 0, lastX: 0, lastY: 0, pinchDist: 0 });
+  const gesture = useRef({ moved: 0, downAt: 0, lastX: 0, lastY: 0, pinchDist: 0, interacted: false });
   const bodiesRef = useRef<{ id: string; cx: number; cy: number; r: number }[]>([]);
   const bodyImgs = useRef<Map<string, HTMLImageElement>>(new Map());
   const texPixels = useRef<{ data: Uint8ClampedArray; w: number; h: number } | null>(null);
@@ -112,6 +114,8 @@ export default function Globe({
   onSelectRef.current = onSelect;
   const onSwitchRef = useRef(onSwitchWorld);
   onSwitchRef.current = onSwitchWorld;
+  const onInteractRef = useRef(onInteract);
+  onInteractRef.current = onInteract;
 
   function makeProjection(): GeoProjection {
     const v = view.current;
@@ -488,6 +492,7 @@ export default function Globe({
       pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
       const g = gesture.current;
       g.moved = 0;
+      g.interacted = false;
       g.downAt = performance.now();
       g.lastX = e.clientX;
       g.lastY = e.clientY;
@@ -509,6 +514,10 @@ export default function Globe({
         if (g.pinchDist > 0) v.zoom = clamp(v.zoom * (d / g.pinchDist), MIN_ZOOM, MAX_ZOOM);
         g.pinchDist = d;
         g.moved += 50;
+        if (!g.interacted) {
+          g.interacted = true;
+          onInteractRef.current();
+        }
         requestRender();
         return;
       }
@@ -518,6 +527,10 @@ export default function Globe({
       g.lastX = e.clientX;
       g.lastY = e.clientY;
       g.moved += Math.hypot(dx, dy);
+      if (!g.interacted && g.moved >= 8) {
+        g.interacted = true;
+        onInteractRef.current();
+      }
       const k = 57.29577951 / (v.baseScale * v.zoom);
       v.rotation = [v.rotation[0] + dx * k, clamp(v.rotation[1] - dy * k, -89, 89), 0];
       requestRender();
@@ -571,6 +584,7 @@ export default function Globe({
       v.zoom = clamp(v.zoom * Math.exp(-e.deltaY * 0.0015), MIN_ZOOM, MAX_ZOOM);
       lastInteraction.current = performance.now();
       lastRotate.current = performance.now();
+      onInteractRef.current();
       requestRender();
     }
 

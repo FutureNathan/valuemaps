@@ -141,6 +141,7 @@ public/
 
 Country geometry is from [world-atlas](https://github.com/topojson/world-atlas)
 (Natural Earth, public domain). Lunar/Martian regions are hand-placed at
-approximate real coordinates. Planet textures for the travel bodies are from
-[threex.planets](https://github.com/jeromeetienne/threex.planets) (Planet Pixel
-Emporium), projected to spheres at build time.
+approximate real coordinates. Planet textures (travel bodies + satellite mode)
+are [Solar System Scope](https://www.solarsystemscope.com/textures/) maps
+(CC BY 4.0, based on NASA imagery), projected to spheres at build time and served
+in a fast low-res tier plus a 2k tier the client upgrades to progressively.

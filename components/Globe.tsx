@@ -137,14 +137,16 @@ export default function Globe({
   // Project the equirectangular texture onto the sphere for the current view,
   // using the SAME projection that draws the countries (so they line up).
   // Cached by orientation/zoom; recomputed only when the view changes.
-  function renderTexture(res: number): HTMLCanvasElement | null {
+  function renderTexture(res: number, smooth: boolean): HTMLCanvasElement | null {
     const tex = texPixels.current;
     if (!tex) return null;
     const v = view.current;
     const cx = v.width / 2;
     const cy = v.height / 2;
     const r = v.baseScale * v.zoom;
-    const key = `${v.rotation[0].toFixed(1)},${v.rotation[1].toFixed(1)},${v.zoom.toFixed(3)},${res}`;
+    const key = `${v.rotation[0].toFixed(1)},${v.rotation[1].toFixed(1)},${v.zoom.toFixed(
+      3
+    )},${res},${smooth ? 1 : 0},${tex.w}`;
     let tc = texCanvas.current;
     if (tc && lastTexKey.current === key) return tc;
     if (!tc) {
@@ -183,17 +185,48 @@ export default function Globe({
           out[o + 3] = 0;
           continue;
         }
-        let u = (((ll[0] + 180) / 360) * tw) | 0;
-        u = ((u % tw) + tw) % tw;
-        let vv = (((90 - ll[1]) / 180) * th) | 0;
-        if (vv < 0) vv = 0;
-        else if (vv >= th) vv = th - 1;
-        const s = (vv * tw + u) * 4;
         const shade = 0.62 + 0.38 * Math.sqrt(1 - rho2); // gentle limb darkening
-        out[o] = td[s] * shade;
-        out[o + 1] = td[s + 1] * shade;
-        out[o + 2] = td[s + 2] * shade;
-        out[o + 3] = 255;
+        if (smooth) {
+          const uf = ((ll[0] + 180) / 360) * tw - 0.5;
+          const vf = ((90 - ll[1]) / 180) * th - 0.5;
+          let u0 = Math.floor(uf);
+          let v0 = Math.floor(vf);
+          const du = uf - u0;
+          const dv = vf - v0;
+          let u1 = u0 + 1;
+          let v1 = v0 + 1;
+          u0 = ((u0 % tw) + tw) % tw;
+          u1 = ((u1 % tw) + tw) % tw;
+          if (v0 < 0) v0 = 0;
+          else if (v0 >= th) v0 = th - 1;
+          if (v1 < 0) v1 = 0;
+          else if (v1 >= th) v1 = th - 1;
+          const i00 = (v0 * tw + u0) * 4;
+          const i10 = (v0 * tw + u1) * 4;
+          const i01 = (v1 * tw + u0) * 4;
+          const i11 = (v1 * tw + u1) * 4;
+          const w00 = (1 - du) * (1 - dv);
+          const w10 = du * (1 - dv);
+          const w01 = (1 - du) * dv;
+          const w11 = du * dv;
+          out[o] = (td[i00] * w00 + td[i10] * w10 + td[i01] * w01 + td[i11] * w11) * shade;
+          out[o + 1] =
+            (td[i00 + 1] * w00 + td[i10 + 1] * w10 + td[i01 + 1] * w01 + td[i11 + 1] * w11) * shade;
+          out[o + 2] =
+            (td[i00 + 2] * w00 + td[i10 + 2] * w10 + td[i01 + 2] * w01 + td[i11 + 2] * w11) * shade;
+          out[o + 3] = 255;
+        } else {
+          let u = (((ll[0] + 180) / 360) * tw) | 0;
+          u = ((u % tw) + tw) % tw;
+          let vv = (((90 - ll[1]) / 180) * th) | 0;
+          if (vv < 0) vv = 0;
+          else if (vv >= th) vv = th - 1;
+          const s = (vv * tw + u) * 4;
+          out[o] = td[s] * shade;
+          out[o + 1] = td[s + 1] * shade;
+          out[o + 2] = td[s + 2] * shade;
+          out[o + 3] = 255;
+        }
       }
     }
     tctx.putImageData(img, 0, 0);
@@ -312,7 +345,12 @@ export default function Globe({
 
     // Surface: real planet texture ("satellite"), else a flat shaded sphere.
     const moving = performance.now() - lastRotate.current < 200;
-    const tc = p.textureSrc && texPixels.current ? renderTexture(moving ? 256 : 512) : null;
+    let tc: HTMLCanvasElement | null = null;
+    if (p.textureSrc && texPixels.current) {
+      // Low res + nearest while moving; device-pixel res + bilinear once settled.
+      const res = moving ? 320 : Math.max(256, Math.min(768, Math.round(2 * r * v.dpr)));
+      tc = renderTexture(res, !moving);
+    }
     if (tc) {
       ctx.save();
       ctx.beginPath();
@@ -592,33 +630,44 @@ export default function Globe({
   useEffect(() => {
     texPixels.current = null;
     lastTexKey.current = "";
-    if (!textureSrc) {
-      requestRender();
-      return;
-    }
+    requestRender();
+    if (!textureSrc) return;
     let cancelled = false;
-    const img = new Image();
-    img.onload = () => {
-      if (cancelled) return;
-      const c = document.createElement("canvas");
-      c.width = img.naturalWidth;
-      c.height = img.naturalHeight;
-      const cc = c.getContext("2d");
-      if (!cc) return;
-      cc.drawImage(img, 0, 0);
-      try {
-        const id = cc.getImageData(0, 0, c.width, c.height);
-        texPixels.current = { data: id.data, w: c.width, h: c.height };
-        lastTexKey.current = "";
-        requestRender();
-      } catch {
-        // ignore (e.g. canvas tainted) — falls back to the flat sphere
-      }
+
+    const loadInto = (src: string, next?: () => void) => {
+      const img = new Image();
+      img.onload = () => {
+        if (cancelled) return;
+        const c = document.createElement("canvas");
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        const cc = c.getContext("2d");
+        if (cc) {
+          cc.drawImage(img, 0, 0);
+          try {
+            const id = cc.getImageData(0, 0, c.width, c.height);
+            // Only ever upgrade resolution, never downgrade.
+            if (!texPixels.current || c.width >= texPixels.current.w) {
+              texPixels.current = { data: id.data, w: c.width, h: c.height };
+              lastTexKey.current = "";
+              requestRender();
+            }
+          } catch {
+            // tainted canvas — keep the flat fallback
+          }
+        }
+        next?.();
+      };
+      img.onerror = () => next?.();
+      img.src = src;
     };
-    img.src = textureSrc;
+
+    // Low-res first for an instant paint, then swap in the 2k map.
+    const hi = textureSrc.replace(/(\.[a-z0-9]+)$/i, "-hi$1");
+    loadInto(textureSrc, () => loadInto(hi));
+
     return () => {
       cancelled = true;
-      img.onload = null;
     };
   }, [textureSrc]);
 

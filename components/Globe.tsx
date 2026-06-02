@@ -99,6 +99,7 @@ export default function Globe({
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef({ moved: 0, downAt: 0, lastX: 0, lastY: 0, pinchDist: 0 });
   const bodiesRef = useRef<{ id: string; cx: number; cy: number; r: number }[]>([]);
+  const bodyImgs = useRef<Map<string, HTMLImageElement>>(new Map());
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
   const onSwitchRef = useRef(onSwitchWorld);
@@ -111,6 +112,18 @@ export default function Globe({
       .scale(v.baseScale * v.zoom)
       .rotate(v.rotation)
       .clipAngle(90);
+  }
+
+  // Lazily load the shaded planet image for a background body.
+  function bodyImage(id: string): HTMLImageElement {
+    let img = bodyImgs.current.get(id);
+    if (!img) {
+      img = new Image();
+      img.onload = () => requestRender();
+      img.src = `/body-${id}.png`;
+      bodyImgs.current.set(id, img);
+    }
+    return img;
   }
 
   function draw() {
@@ -164,26 +177,47 @@ export default function Globe({
     const bodies: { id: string; cx: number; cy: number; r: number }[] = [];
     p.backgroundBodies.slice(0, 2).forEach((b, i) => {
       const s = spots[i];
-      ctx.globalAlpha = 0.5;
-      const g = ctx.createRadialGradient(s.x - bodyR * 0.35, s.y - bodyR * 0.35, bodyR * 0.1, s.x, s.y, bodyR);
-      g.addColorStop(0, b.inner);
-      g.addColorStop(1, b.outer);
+      const img = bodyImage(b.id);
+      ctx.save();
       ctx.beginPath();
       ctx.arc(s.x, s.y, bodyR, 0, Math.PI * 2);
-      ctx.fillStyle = g;
-      ctx.fill();
-      ctx.globalAlpha = 0.6;
+      ctx.closePath();
+      if (img.complete && img.naturalWidth > 0) {
+        ctx.globalAlpha = 0.96;
+        ctx.clip();
+        ctx.drawImage(img, s.x - bodyR, s.y - bodyR, bodyR * 2, bodyR * 2);
+      } else {
+        // Fallback shaded disc while the texture loads.
+        ctx.globalAlpha = 0.5;
+        const g = ctx.createRadialGradient(s.x - bodyR * 0.35, s.y - bodyR * 0.35, bodyR * 0.1, s.x, s.y, bodyR);
+        g.addColorStop(0, b.inner);
+        g.addColorStop(1, b.outer);
+        ctx.fillStyle = g;
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // Rim + label.
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, bodyR, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(255,255,255,0.14)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      ctx.globalAlpha = 0.78;
       ctx.font = "600 10px ui-sans-serif, system-ui, sans-serif";
       ctx.textAlign = "center";
-      ctx.fillStyle = "rgba(220,228,245,0.8)";
+      ctx.fillStyle = "rgba(220,228,245,0.85)";
       try {
         (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = "2px";
       } catch {}
-      ctx.fillText(b.name.toUpperCase(), s.x, s.y + bodyR + 13);
+      ctx.fillText(b.name.toUpperCase(), s.x, s.y + bodyR + 14);
       try {
         (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = "0px";
       } catch {}
       ctx.textAlign = "start";
+
       bodies.push({ id: b.id, cx: s.x, cy: s.y, r: bodyR });
     });
     ctx.globalAlpha = 1;

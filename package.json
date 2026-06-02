@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "build:data": "node scripts/build-data.mjs",
-    "build:images": "node scripts/build-images.mjs"
+    "build:images": "node scripts/build-images.mjs",
+    "build:bodies": "node scripts/build-bodies.mjs"
   },
   "dependencies": {
     "@upstash/redis": "^1.34.3",

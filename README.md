@@ -125,13 +125,17 @@ lib/
 scripts/
   build-data.mjs         fetches + joins the reference datasets
   build-images.mjs       renders the OG share card + icons
+  build-bodies.mjs       renders shaded Earth/Moon/Mars planet images
 supabase/
   schema.sql             one-table schema for shared responses
 public/
   countries-110m.json    Natural Earth countries (world-atlas)
   reference-data.json     generated reference data (committed)
+  body-*.png             shaded planet images for the travel bodies
 ```
 
 Country geometry is from [world-atlas](https://github.com/topojson/world-atlas)
 (Natural Earth, public domain). Lunar/Martian regions are hand-placed at
-approximate real coordinates.
+approximate real coordinates. Planet textures for the travel bodies are from
+[threex.planets](https://github.com/jeromeetienne/threex.planets) (Planet Pixel
+Emporium), projected to spheres at build time.

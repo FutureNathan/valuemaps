@@ -51,19 +51,30 @@ npm run dev      # http://localhost:3000
 Push to GitHub → import at [vercel.com/new](https://vercel.com/new). Standard
 Next.js app — nothing to configure.
 
-### Optional: shared community responses
+### Optional: shared community responses (Supabase)
 
-To persist responses across visitors, add a serverless Redis (free tiers are
-plenty). The app reads either Upstash or Vercel KV style env vars:
+By default community responses live only in your own browser. To save & share
+them across everyone, connect a free database. **Supabase** is the easy path:
 
-| Variable | |
-| --- | --- |
-| `UPSTASH_REDIS_REST_URL`  (or `KV_REST_API_URL`)   | REST endpoint |
-| `UPSTASH_REDIS_REST_TOKEN` (or `KV_REST_API_TOKEN`) | REST token |
+1. Create a project at [supabase.com](https://supabase.com) (free tier).
+2. In the **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql) — it
+   creates one `value_aggregates` table.
+3. Open **Project Settings → API** and set two environment variables (on Vercel:
+   *Project → Settings → Environment Variables*; locally: `.env.local`):
 
-On Vercel: **Storage → Marketplace → Upstash Redis** injects these for you.
-Locally, copy `.env.example` to `.env.local`. The footer flips from "demo mode"
-to "live" once connected. Each world is stored separately (`vm:agg:earth`, `…:moon`, `…:mars`).
+   | Variable | Where to find it |
+   | --- | --- |
+   | `SUPABASE_URL` | Project URL |
+   | `SUPABASE_SERVICE_ROLE_KEY` | `service_role` key — **secret, server-only** |
+
+4. Redeploy. The sidebar footer flips from "demo mode" to "live".
+
+The service-role key is used only server-side (in the API routes) and bypasses
+row-level security, so the table stays private. Each world is stored separately,
+and only anonymous tallies are written — never individual answers.
+
+Prefer Redis? Upstash / Vercel KV also work — set `UPSTASH_REDIS_REST_URL` +
+`UPSTASH_REDIS_REST_TOKEN` (or the `KV_*` equivalents) instead.
 
 ### Social preview
 
@@ -114,6 +125,8 @@ lib/
 scripts/
   build-data.mjs         fetches + joins the reference datasets
   build-images.mjs       renders the OG share card + icons
+supabase/
+  schema.sql             one-table schema for shared responses
 public/
   countries-110m.json    Natural Earth countries (world-atlas)
   reference-data.json     generated reference data (committed)

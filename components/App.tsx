@@ -64,6 +64,7 @@ export default function App() {
   const [focus, setFocus] = useState<FocusTarget | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
 
@@ -289,16 +290,15 @@ export default function App() {
     }
   }
 
-  const backgroundBodies: BackgroundBody[] = useMemo(
-    () =>
-      WORLDS.filter((w) => w.id !== worldId).map((w) => ({
-        id: w.id,
-        name: w.name.replace(/^The /, ""),
-        inner: w.body.inner,
-        outer: w.body.outer,
-      })),
-    [worldId]
-  );
+  const backgroundBodies: BackgroundBody[] = useMemo(() => {
+    const order = ["earth", "moon", "mars"];
+    const i = order.indexOf(worldId);
+    // [next, prev] so the top corner always advances Earth → Moon → Mars → Earth.
+    return [order[(i + 1) % 3], order[(i + 2) % 3]].map((id) => {
+      const w = WORLD_BY_ID[id];
+      return { id: w.id, name: w.name.replace(/^The /, ""), inner: w.body.inner, outer: w.body.outer };
+    });
+  }, [worldId]);
 
   const selName = selectedId ? namesRef.current.get(selectedId) ?? null : null;
   const selectedAgg = selectedId ? realFor(selectedId) : undefined;
@@ -324,15 +324,34 @@ export default function App() {
         {loading && <div className="loading">Loading {world.name}…</div>}
       </div>
 
-      <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
-        <button className="sidebar-head" onClick={() => setSidebarOpen((s) => !s)}>
+      {collapsed && (
+        <button className="sidebar-open-btn" onClick={() => setCollapsed(false)} aria-label="Open menu">
+          <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M1 3h14M1 8h14M1 13h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+          <span>Menu</span>
+        </button>
+      )}
+
+      <aside className={`sidebar ${sidebarOpen ? "open" : ""} ${collapsed ? "collapsed" : ""}`}>
+        <div className="sidebar-head" onClick={() => setSidebarOpen((s) => !s)}>
           <span className="grab" />
           <div className="brand">
             <h1>Value Maps</h1>
             <p>{world.tagline}</p>
           </div>
+          <button
+            className="collapse-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              setCollapsed(true);
+            }}
+            aria-label="Collapse menu"
+          >
+            «
+          </button>
           <span className="chev">{sidebarOpen ? "▾" : "▴"}</span>
-        </button>
+        </div>
 
         <div className="sidebar-body">
           <div className="world-tabs">

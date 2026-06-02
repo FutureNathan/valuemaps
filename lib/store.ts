@@ -7,7 +7,13 @@ import type { Aggregate, RegionAggregates, Submission } from "./types";
 // upgrades to shared, persistent responses once you add credentials.
 
 // --- Supabase (REST / PostgREST — no SDK dependency) ---
-const supaUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
+// Project URL is pre-wired (it's public, not a secret); env vars still override.
+// You only need to set SUPABASE_SERVICE_ROLE_KEY to go live.
+const supaUrl = (
+  process.env.SUPABASE_URL ||
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  "https://frlfegdrniztuoijlpny.supabase.co"
+).replace(/\/$/, "");
 const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || "";
 const supaOn = !!(supaUrl && supaKey);
 const TABLE = "value_aggregates";

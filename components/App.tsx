@@ -54,6 +54,7 @@ export default function App() {
 
   const [serverByWorld, setServerByWorld] = useState<Record<string, RegionAggregates>>({});
   const [storageLive, setStorageLive] = useState(false);
+  const [backend, setBackend] = useState("none");
   const [local, setLocal] = useState<LocalState | null>(null);
   const [referenceData, setReferenceData] = useState<ReferenceData>({});
 
@@ -108,6 +109,7 @@ export default function App() {
       .then((d) => {
         setServerByWorld((prev) => ({ ...prev, [id]: d.regions || {} }));
         setStorageLive(!!d.storage);
+        setBackend(d.backend || "none");
       })
       .catch(() => {});
   }, []);
@@ -469,7 +471,9 @@ export default function App() {
           <footer className="foot">
             <span className={`dot ${storageLive ? "dot-live" : "dot-demo"}`} />
             {storageLive
-              ? "Community responses are live & shared."
+              ? `Live & shared${
+                  backend === "supabase" ? " · Supabase" : backend === "upstash" ? " · Upstash" : ""
+                }.`
               : "Community is in demo mode — add a database to save responses."}
           </footer>
         </div>

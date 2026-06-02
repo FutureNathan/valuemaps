@@ -4,9 +4,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { feature, mesh } from "topojson-client";
 import { geoCentroid } from "d3-geo";
 import type { Feature, FeatureCollection, GeoJsonProperties, Geometry } from "geojson";
-import Globe, { type FocusTarget } from "./Globe";
+import Globe, { type BackgroundBody, type FocusTarget } from "./Globe";
 import ValueForm from "./ValueForm";
-import { AXES, type Axis, type AxisId } from "@/lib/axes";
+import { TENSION_PAIRS, WANT_BY_ID } from "@/lib/values";
+import {
+  WORLDS,
+  WORLD_BY_ID,
+  regionCentroids,
+  regionFeatures,
+  regionNames,
+} from "@/lib/worlds";
 import {
   SOURCES,
   SOURCE_BY_ID,
@@ -17,38 +24,35 @@ import {
 } from "@/lib/sources";
 import {
   applySubmission,
-  axisAverage,
   emptyAggregate,
   mergeAggregates,
-  topTopics,
+  topPair,
+  topWants,
+  wantShare,
 } from "@/lib/aggregate";
 import type { Aggregate, RegionAggregates, Submission } from "@/lib/types";
 
 type Country = Feature<Geometry, GeoJsonProperties>;
 type ReferenceData = Record<string, Record<string, Record<string, number>>>;
-const STORAGE_KEY = "valuemaps:v1";
+type EarthGeo = { features: Country[]; borders: Geometry; names: Map<string, string>; centroids: Map<string, [number, number]> };
+const STORAGE_KEY = "valuemaps:v2";
 
 interface LocalState {
   submission: Submission;
   persisted: boolean;
 }
 
-const communityMetricById = Object.fromEntries(
-  SOURCE_BY_ID.community.metrics.map((m) => [m.id, m])
-);
-
-function leanLabel(axis: Axis, v: number) {
-  if (Math.abs(v) < 12) return "Balanced";
-  return v < 0 ? axis.left : axis.right;
-}
-
 export default function App() {
-  const [countries, setCountries] = useState<Country[]>([]);
+  const earthRef = useRef<EarthGeo | null>(null);
+
+  const [worldId, setWorldId] = useState("earth");
+  const [features, setFeatures] = useState<Country[]>([]);
   const [borders, setBorders] = useState<Geometry | null>(null);
   const namesRef = useRef<Map<string, string>>(new Map());
   const centroidsRef = useRef<Map<string, [number, number]>>(new Map());
+  const [geoVersion, setGeoVersion] = useState(0);
 
-  const [serverRegions, setServerRegions] = useState<RegionAggregates>({});
+  const [serverByWorld, setServerByWorld] = useState<Record<string, RegionAggregates>>({});
   const [storageLive, setStorageLive] = useState(false);
   const [local, setLocal] = useState<LocalState | null>(null);
   const [referenceData, setReferenceData] = useState<ReferenceData>({});
@@ -63,16 +67,55 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
 
-  const source = SOURCE_BY_ID[sourceId];
+  const worldIdRef = useRef(worldId);
+  worldIdRef.current = worldId;
+  const loadedWorlds = useRef<Set<string>>(new Set(["earth"]));
+
+  const world = WORLD_BY_ID[worldId];
+  const availableSources = world.hasReference ? SOURCES : SOURCES.filter((s) => s.kind === "community");
+  const source = SOURCE_BY_ID[sourceId] ?? SOURCE_BY_ID.community;
   const metric = source.metrics.find((m) => m.id === metricId) ?? source.metrics[0];
 
-  // Load the country geometry once.
+  const applyWorldGeo = useCallback((id: string) => {
+    const w = WORLD_BY_ID[id];
+    if (w.kind === "countries") {
+      const e = earthRef.current;
+      if (!e) {
+        setFeatures([]);
+        setBorders(null);
+        namesRef.current = new Map();
+        centroidsRef.current = new Map();
+        setGeoVersion((v) => v + 1);
+        return;
+      }
+      setFeatures(e.features);
+      setBorders(e.borders);
+      namesRef.current = e.names;
+      centroidsRef.current = e.centroids;
+    } else {
+      setFeatures(regionFeatures(w));
+      setBorders(null);
+      namesRef.current = regionNames(w);
+      centroidsRef.current = regionCentroids(w);
+    }
+    setGeoVersion((v) => v + 1);
+  }, []);
+
+  const loadAggregates = useCallback((id: string) => {
+    fetch(`/api/aggregate?world=${id}`)
+      .then((r) => r.json())
+      .then((d) => {
+        setServerByWorld((prev) => ({ ...prev, [id]: d.regions || {} }));
+        setStorageLive(!!d.storage);
+      })
+      .catch(() => {});
+  }, []);
+
+  // One-time loads: Earth geometry, reference data, the saved vote, and Earth's aggregates.
   useEffect(() => {
-    let cancelled = false;
     fetch("/countries-110m.json")
       .then((r) => r.json())
       .then((topo) => {
-        if (cancelled) return;
         const fc = feature(topo, topo.objects.countries) as unknown as FeatureCollection<
           Geometry,
           GeoJsonProperties
@@ -85,66 +128,60 @@ export default function App() {
           names.set(id, (f.properties?.name as string) || id);
           cents.set(id, geoCentroid(f) as [number, number]);
         }
-        namesRef.current = names;
-        centroidsRef.current = cents;
-        setBorders(mesh(topo, topo.objects.countries, (a, b) => a !== b) as Geometry);
-        setCountries(feats);
+        earthRef.current = {
+          features: feats,
+          borders: mesh(topo, topo.objects.countries, (a, b) => a !== b) as Geometry,
+          names,
+          centroids: cents,
+        };
+        if (worldIdRef.current === "earth") applyWorldGeo("earth");
       })
       .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
-  // Load reference datasets, community aggregates, and any local vote.
-  useEffect(() => {
     fetch("/reference-data.json")
       .then((r) => r.json())
       .then((d) => setReferenceData(d.data || {}))
       .catch(() => {});
-    fetch("/api/aggregate")
-      .then((r) => r.json())
-      .then((d) => {
-        setServerRegions(d.regions || {});
-        setStorageLive(!!d.storage);
-      })
-      .catch(() => {});
+
+    loadAggregates("earth");
+
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as LocalState;
-        setLocal(parsed);
-        if (parsed.submission?.regionId) setSelectedId(parsed.submission.regionId);
-      }
+      if (raw) setLocal(JSON.parse(raw) as LocalState);
     } catch {}
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) setAutoRotate(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Community totals = server data + the visitor's own (un-persisted) vote.
   const realFor = useCallback(
     (id: string): Aggregate | undefined => {
-      const server = serverRegions[id];
+      const server = serverByWorld[worldId]?.[id];
       let mine: Aggregate | undefined;
-      if (local && !local.persisted && local.submission.regionId === id) {
+      if (
+        local &&
+        !local.persisted &&
+        local.submission.worldId === worldId &&
+        local.submission.regionId === id
+      ) {
         mine = applySubmission(emptyAggregate(), local.submission);
       }
       if (!server && !mine) return undefined;
       return mergeAggregates(server, mine);
     },
-    [serverRegions, local]
+    [serverByWorld, worldId, local]
   );
 
   const valueFor = useCallback(
-    (id: string, mId: string = metricId): number | null => {
-      if (source.kind === "community") return axisAverage(realFor(id), mId as AxisId);
+    (id: string, mId: string): number | null => {
+      if (source.kind === "community") return wantShare(realFor(id), mId);
       const v = referenceData[sourceId]?.[id]?.[mId];
       return typeof v === "number" ? v : null;
     },
-    [source.kind, sourceId, metricId, referenceData, realFor]
+    [source.kind, sourceId, referenceData, realFor]
   );
 
   const colorForId = useCallback(
-    (id: string) => metricColor(metric, valueFor(id)),
+    (id: string) => metricColor(metric, valueFor(id, metric.id)),
     [metric, valueFor]
   );
 
@@ -152,6 +189,25 @@ export default function App() {
     setSourceId(id);
     setMetricId(SOURCE_BY_ID[id].metrics[0].id);
   }, []);
+
+  const switchWorld = useCallback(
+    (id: string) => {
+      if (id === worldId || !WORLD_BY_ID[id]) return;
+      const w = WORLD_BY_ID[id];
+      setWorldId(id);
+      setSelectedId(null);
+      setQuery("");
+      setFocus(null);
+      setSourceId(w.defaultSource);
+      setMetricId(SOURCE_BY_ID[w.defaultSource].metrics[0].id);
+      applyWorldGeo(id);
+      if (!loadedWorlds.current.has(id)) {
+        loadedWorlds.current.add(id);
+        loadAggregates(id);
+      }
+    },
+    [worldId, applyWorldGeo, loadAggregates]
+  );
 
   const goTo = useCallback((id: string) => {
     setSelectedId(id);
@@ -177,10 +233,13 @@ export default function App() {
       const data = await res.json();
       persisted = !!data.persisted;
       if (data.ok && persisted && data.aggregate) {
-        setServerRegions((prev) => ({ ...prev, [sub.regionId]: data.aggregate }));
+        setServerByWorld((prev) => ({
+          ...prev,
+          [sub.worldId]: { ...(prev[sub.worldId] || {}), [sub.regionId]: data.aggregate },
+        }));
       }
     } catch {
-      // offline / no datastore — vote is still kept locally below
+      // offline / no datastore — kept locally below
     }
     const ls: LocalState = { submission: sub, persisted };
     setLocal(ls);
@@ -201,13 +260,13 @@ export default function App() {
     });
     return out
       .sort((a, b) => {
-        // Prefix matches first, then alphabetical.
         const ap = a.name.toLowerCase().startsWith(q) ? 0 : 1;
         const bp = b.name.toLowerCase().startsWith(q) ? 0 : 1;
         return ap - bp || a.name.localeCompare(b.name);
       })
       .slice(0, 7);
-  }, [query, countries]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, geoVersion]);
 
   useEffect(() => setActiveIdx(0), [query]);
 
@@ -230,24 +289,39 @@ export default function App() {
     }
   }
 
+  const backgroundBodies: BackgroundBody[] = useMemo(
+    () =>
+      WORLDS.filter((w) => w.id !== worldId).map((w) => ({
+        id: w.id,
+        name: w.name.replace(/^The /, ""),
+        inner: w.body.inner,
+        outer: w.body.outer,
+      })),
+    [worldId]
+  );
+
   const selName = selectedId ? namesRef.current.get(selectedId) ?? null : null;
   const selectedAgg = selectedId ? realFor(selectedId) : undefined;
-  const selConcerns = topTopics(selectedAgg, 5);
-  const loading = countries.length === 0;
+  const loading = features.length === 0;
 
   return (
     <div className="app">
       <div className="globe-wrap">
         <Globe
-          features={countries}
+          key={worldId}
+          features={features}
           borders={borders}
           colorForId={colorForId}
           selectedId={selectedId}
           onSelect={handleSelect}
           focusTarget={focus}
           autoRotate={autoRotate}
+          style={world.style}
+          backgroundBodies={backgroundBodies}
+          onSwitchWorld={switchWorld}
+          initialRotation={world.initialRotation}
         />
-        {loading && <div className="loading">Loading the globe…</div>}
+        {loading && <div className="loading">Loading {world.name}…</div>}
       </div>
 
       <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
@@ -255,19 +329,31 @@ export default function App() {
           <span className="grab" />
           <div className="brand">
             <h1>Value Maps</h1>
-            <p>What does the world actually care about?</p>
+            <p>{world.tagline}</p>
           </div>
           <span className="chev">{sidebarOpen ? "▾" : "▴"}</span>
         </button>
 
         <div className="sidebar-body">
+          <div className="world-tabs">
+            {WORLDS.map((w) => (
+              <button
+                key={w.id}
+                className={`world-tab ${w.id === worldId ? "on" : ""}`}
+                onClick={() => switchWorld(w.id)}
+              >
+                {w.name.replace(/^The /, "")}
+              </button>
+            ))}
+          </div>
+
           <div className="search">
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={onSearchKeyDown}
-              placeholder="Search a country…"
-              aria-label="Search a country"
+              placeholder={world.kind === "countries" ? "Search a country…" : "Search a place…"}
+              aria-label="Search a place"
               autoComplete="off"
             />
             {results.length > 0 && (
@@ -285,11 +371,11 @@ export default function App() {
 
           <section className="block">
             <div className="block-title">Data source</div>
-            <div className="axis-chips">
-              {SOURCES.map((s) => (
+            <div className="chip-row">
+              {availableSources.map((s) => (
                 <button
                   key={s.id}
-                  className={`axis-chip ${s.id === sourceId ? "on" : ""}`}
+                  className={`pchip ${s.id === sourceId ? "on" : ""}`}
                   onClick={() => pickSource(s.id)}
                 >
                   {s.label}
@@ -301,11 +387,11 @@ export default function App() {
 
           <section className="block">
             <div className="block-title">Color the map by</div>
-            <div className="axis-chips">
+            <div className="chip-row">
               {source.metrics.map((m) => (
                 <button
                   key={m.id}
-                  className={`axis-chip ${m.id === metricId ? "on" : ""}`}
+                  className={`pchip ${m.id === metricId ? "on" : ""}`}
                   onClick={() => setMetricId(m.id)}
                 >
                   {m.label}
@@ -326,19 +412,17 @@ export default function App() {
           </section>
 
           <button className="primary-btn" onClick={() => setFormOpen(true)}>
-            {local ? "✏️ Update your values" : "➕ Add your values"}
+            {local ? "Update what you want" : "Share what you want"}
           </button>
 
           <section className="block region">
             {!selectedId ? (
-              <div className="hint">Tap any country, or search above, to see its profile.</div>
+              <div className="hint">
+                Tap any {world.kind === "countries" ? "country" : "place"}, or search above, to see
+                its profile.
+              </div>
             ) : source.kind === "community" ? (
-              <CommunityPanel
-                name={selName}
-                agg={selectedAgg}
-                concerns={selConcerns}
-                onAdd={() => setFormOpen(true)}
-              />
+              <CommunityPanel name={selName} agg={selectedAgg} onAdd={() => setFormOpen(true)} />
             ) : (
               <ReferencePanel
                 name={selName}
@@ -360,6 +444,7 @@ export default function App() {
               />
               <span>Auto-spin</span>
             </label>
+            <span className="travel-hint">Tap a faint world in space to travel there.</span>
           </section>
 
           <footer className="foot">
@@ -373,6 +458,7 @@ export default function App() {
 
       <ValueForm
         open={formOpen}
+        worldId={worldId}
         regionId={selectedId}
         regionName={selName}
         existing={local?.submission ?? null}
@@ -386,15 +472,17 @@ export default function App() {
 function CommunityPanel({
   name,
   agg,
-  concerns,
   onAdd,
 }: {
   name: string | null;
   agg: Aggregate | undefined;
-  concerns: { topic: string; count: number }[];
   onAdd: () => void;
 }) {
   const count = agg?.count ?? 0;
+  const wants = topWants(agg, 6);
+  const pair = topPair(agg);
+  const pairDef = pair ? TENSION_PAIRS.find((p) => p.id === pair.id) : null;
+
   return (
     <>
       <div className="region-head">
@@ -410,45 +498,35 @@ function CommunityPanel({
 
       {count > 0 ? (
         <>
-          <div className="axis-readouts">
-            {AXES.map((a) => {
-              const v = axisAverage(agg, a.id) ?? 0;
-              const m = communityMetricById[a.id];
+          {pairDef && pair && (
+            <div className="both-highlight">
+              <strong>{Math.round(pair.share)}%</strong> here want both {pairDef.label} — not one
+              or the other.
+            </div>
+          )}
+          <div className="block-title">Most want here</div>
+          <div className="want-bars">
+            {wants.map((w) => {
+              const def = WANT_BY_ID[w.id];
               return (
-                <div className="readout" key={a.id}>
+                <div className="want-bar" key={w.id}>
                   <div className="readout-top">
-                    <span>{a.label}</span>
-                    <span className="readout-lean">{leanLabel(a, v)}</span>
+                    <span>{def?.label ?? w.id}</span>
+                    <span className="metric-val">{Math.round(w.share)}%</span>
                   </div>
-                  <div className="track">
-                    <span className="track-mid" />
+                  <div className="bar-track">
                     <span
-                      className="track-dot"
-                      style={{
-                        left: `${normalizedPosition(m, v) * 100}%`,
-                        background: metricColor(m, v),
-                      }}
+                      className="bar-fill"
+                      style={{ width: `${w.share}%`, background: def?.color ?? "#888" }}
                     />
                   </div>
                 </div>
               );
             })}
           </div>
-          {concerns.length > 0 && (
-            <div className="concerns">
-              <div className="block-title">Top concerns</div>
-              <div className="chips">
-                {concerns.map((c) => (
-                  <span className="chip chip-static" key={c.topic}>
-                    {c.topic}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
         </>
       ) : (
-        <div className="hint">Be the first to share what people here care about.</div>
+        <div className="hint">Be the first to share what people here want.</div>
       )}
 
       <button className="ghost-btn" onClick={onAdd}>

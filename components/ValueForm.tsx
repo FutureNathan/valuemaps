@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { AXES, MAX_TOPICS, TOPICS, type AxisId } from "@/lib/axes";
+import { useEffect, useMemo, useState } from "react";
+import { TENSION_PAIRS, WANTS } from "@/lib/values";
 import type { Submission } from "@/lib/types";
 
 interface ValueFormProps {
   open: boolean;
+  worldId: string;
   regionId: string | null;
   regionName: string | null;
   existing: Submission | null;
@@ -13,39 +14,37 @@ interface ValueFormProps {
   onSubmit: (sub: Submission) => Promise<void>;
 }
 
-function defaultAxes(): Record<AxisId, number> {
-  const a = {} as Record<AxisId, number>;
-  for (const ax of AXES) a[ax.id] = 0;
-  return a;
-}
-
 export default function ValueForm({
   open,
+  worldId,
   regionId,
   regionName,
   existing,
   onClose,
   onSubmit,
 }: ValueFormProps) {
-  const [axes, setAxes] = useState<Record<AxisId, number>>(defaultAxes());
-  const [topics, setTopics] = useState<string[]>([]);
+  const [wants, setWants] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
 
-  // Reset to the visitor's previous answers (or neutral) each time it opens.
   useEffect(() => {
     if (!open) return;
-    setAxes(existing ? { ...defaultAxes(), ...existing.axes } : defaultAxes());
-    setTopics(existing ? [...existing.topics] : []);
+    setWants(new Set(existing?.wants ?? []));
     setSaving(false);
   }, [open, existing]);
 
+  // "You can want both" — surface a held tension pair as encouragement.
+  const bothHeld = useMemo(() => {
+    for (const p of TENSION_PAIRS) if (wants.has(p.a) && wants.has(p.b)) return p;
+    return null;
+  }, [wants]);
+
   if (!open) return null;
 
-  function toggleTopic(t: string) {
-    setTopics((cur) => {
-      if (cur.includes(t)) return cur.filter((x) => x !== t);
-      if (cur.length >= MAX_TOPICS) return cur;
-      return [...cur, t];
+  function toggle(id: string) {
+    setWants((cur) => {
+      const next = new Set(cur);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
     });
   }
 
@@ -53,7 +52,7 @@ export default function ValueForm({
     if (!regionId || saving) return;
     setSaving(true);
     try {
-      await onSubmit({ regionId, axes, topics });
+      await onSubmit({ worldId, regionId, wants: [...wants] });
     } finally {
       setSaving(false);
     }
@@ -63,77 +62,59 @@ export default function ValueForm({
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
         <div className="modal-head">
-          <h2>{existing ? "Update your values" : "Share what you care about"}</h2>
+          <div>
+            <h2>{existing ? "Update what you want" : "What do you want?"}</h2>
+            <p className="modal-sub">
+              Pick everything you believe in — even hopes people say you can&apos;t have together.
+            </p>
+          </div>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
 
         <div className="field-block">
-          <div className="field-label">Your location</div>
+          <div className="field-label">For</div>
           {regionId ? (
-            <div className="loc-pill">📍 {regionName ?? "Selected region"}</div>
+            <div className="loc-pill">{regionName ?? "Selected place"}</div>
           ) : (
             <div className="loc-empty">
-              <span>Pick your location first.</span>
+              <span>Pick a place first.</span>
               <button className="ghost-btn small" onClick={onClose}>
-                Close & tap the globe
+                Close &amp; tap the globe
               </button>
             </div>
           )}
         </div>
 
-        <div className="axes">
-          {AXES.map((a) => (
-            <div className="axis-row" key={a.id}>
-              <div className="axis-q">{a.question}</div>
-              <input
-                type="range"
-                min={-100}
-                max={100}
-                step={5}
-                value={axes[a.id]}
-                onChange={(e) => setAxes((cur) => ({ ...cur, [a.id]: Number(e.target.value) }))}
-                style={{
-                  background: `linear-gradient(90deg, ${a.leftColor}, #5b6b82 50%, ${a.rightColor})`,
-                }}
-              />
-              <div className="axis-ends">
-                <span>{a.left}</span>
-                <span>{a.right}</span>
-              </div>
-            </div>
-          ))}
+        <div className="want-grid">
+          {WANTS.map((w) => {
+            const on = wants.has(w.id);
+            return (
+              <button
+                key={w.id}
+                className={`want-card ${on ? "on" : ""}`}
+                style={on ? { borderColor: w.color, boxShadow: `inset 0 0 0 1px ${w.color}` } : undefined}
+                onClick={() => toggle(w.id)}
+              >
+                <span className="want-dot" style={{ background: w.color }} />
+                {w.label}
+              </button>
+            );
+          })}
         </div>
 
-        <div className="field-block">
-          <div className="field-label">
-            Top concerns <span className="muted">({topics.length}/{MAX_TOPICS})</span>
+        {bothHeld && (
+          <div className="both-note">
+            You want <strong>{bothHeld.label}</strong>. Most “either/or” debates are false choices —
+            this map is here to prove it.
           </div>
-          <div className="chips">
-            {TOPICS.map((t) => {
-              const on = topics.includes(t);
-              const disabled = !on && topics.length >= MAX_TOPICS;
-              return (
-                <button
-                  key={t}
-                  className={`chip ${on ? "chip-on" : ""}`}
-                  disabled={disabled}
-                  onClick={() => toggleTopic(t)}
-                >
-                  {t}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        )}
 
         <button className="primary-btn" disabled={!regionId || saving} onClick={submit}>
-          {saving ? "Saving…" : existing ? "Update my values" : "Add my voice"}
+          {saving ? "Saving…" : existing ? "Update what I want" : "Add what I want"}
         </button>
-        <p className="fine-print">
-          Only anonymous totals are kept for your region — never individual answers.
-        </p>
+        <p className="fine-print">Only anonymous totals are kept for each place — never individual answers.</p>
       </div>
     </div>
   );

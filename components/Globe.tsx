@@ -16,6 +16,21 @@ export interface FocusTarget {
   nonce: number;
 }
 
+export interface GlobeStyle {
+  sphereInner: string;
+  sphereOuter: string;
+  atmosphere: string; // "r,g,b"
+  graticule: boolean;
+  outlineFeatures: boolean;
+}
+
+export interface BackgroundBody {
+  id: string;
+  name: string;
+  inner: string;
+  outer: string;
+}
+
 interface GlobeProps {
   features: Feature<Geometry, GeoJsonProperties>[];
   borders: Geometry | null;
@@ -24,12 +39,16 @@ interface GlobeProps {
   onSelect: (id: string | null) => void;
   focusTarget: FocusTarget | null;
   autoRotate: boolean;
+  style: GlobeStyle;
+  backgroundBodies: BackgroundBody[];
+  onSwitchWorld: (id: string) => void;
+  initialRotation: [number, number, number];
 }
 
 const MIN_ZOOM = 0.85;
 const MAX_ZOOM = 7;
-const SPIN_SPEED = 0.12; // degrees/frame
-const IDLE_MS = 2800; // wait this long after interaction before auto-spinning
+const SPIN_SPEED = 0.1;
+const IDLE_MS = 3000;
 
 function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
@@ -39,9 +58,8 @@ function easeInOut(t: number) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 }
 
-// Shortest-path interpolation for longitude (handles the -180/180 seam).
 function lerpAngle(a: number, b: number, t: number) {
-  let d = ((b - a + 540) % 360) - 180;
+  const d = ((b - a + 540) % 360) - 180;
   return a + d * t;
 }
 
@@ -53,24 +71,26 @@ export default function Globe({
   onSelect,
   focusTarget,
   autoRotate,
+  style,
+  backgroundBodies,
+  onSwitchWorld,
+  initialRotation,
 }: GlobeProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Mutable view state lives in refs so panning never triggers React renders.
   const view = useRef({
-    rotation: [70, -18, 0] as [number, number, number],
+    rotation: [...initialRotation] as [number, number, number],
     zoom: 1,
     baseScale: 300,
     width: 0,
     height: 0,
     dpr: 1,
-    stars: [] as { x: number; y: number; r: number; a: number }[],
+    stars: [] as { x: number; y: number; r: number; a: number; bright: boolean }[],
   });
 
-  // Latest props for the animation loop / handlers without re-binding.
-  const propsRef = useRef({ features, borders, colorForId, selectedId, autoRotate });
-  propsRef.current = { features, borders, colorForId, selectedId, autoRotate };
+  const propsRef = useRef({ features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies });
+  propsRef.current = { features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies };
 
   const dirty = useRef(true);
   const raf = useRef<number | null>(null);
@@ -78,8 +98,11 @@ export default function Globe({
   const tween = useRef<{ from: [number, number, number]; to: [number, number, number]; start: number; dur: number } | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef({ moved: 0, downAt: 0, lastX: 0, lastY: 0, pinchDist: 0 });
+  const bodiesRef = useRef<{ id: string; cx: number; cy: number; r: number }[]>([]);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
+  const onSwitchRef = useRef(onSwitchWorld);
+  onSwitchRef.current = onSwitchWorld;
 
   function makeProjection(): GeoProjection {
     const v = view.current;
@@ -104,64 +127,118 @@ export default function Globe({
 
     ctx.save();
     ctx.scale(v.dpr, v.dpr);
-    ctx.clearRect(0, 0, w, h);
 
-    // Starfield (drawn once into a cached list, just plotted each frame).
+    // Deep-space backdrop (near-black, subtle center lift).
+    const space = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w, h) * 0.75);
+    space.addColorStop(0, "#05070d");
+    space.addColorStop(1, "#000000");
+    ctx.fillStyle = space;
+    ctx.fillRect(0, 0, w, h);
+
+    // Stars.
     for (const s of v.stars) {
+      if (s.bright) {
+        const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r * 4);
+        g.addColorStop(0, `rgba(226,236,255,${s.a})`);
+        g.addColorStop(1, "rgba(226,236,255,0)");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r * 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.globalAlpha = s.a;
       ctx.beginPath();
       ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-      ctx.fillStyle = "#dce6ff";
+      ctx.fillStyle = "#eaf1ff";
       ctx.fill();
     }
     ctx.globalAlpha = 1;
 
+    // Faint background worlds you can tap to travel to.
+    const bodyR = Math.max(24, Math.min(w, h) * 0.058);
+    const m = Math.min(w, h) * 0.06 + bodyR;
+    const spots = [
+      { x: w - m, y: m },
+      { x: m, y: h - m },
+    ];
+    const bodies: { id: string; cx: number; cy: number; r: number }[] = [];
+    p.backgroundBodies.slice(0, 2).forEach((b, i) => {
+      const s = spots[i];
+      ctx.globalAlpha = 0.5;
+      const g = ctx.createRadialGradient(s.x - bodyR * 0.35, s.y - bodyR * 0.35, bodyR * 0.1, s.x, s.y, bodyR);
+      g.addColorStop(0, b.inner);
+      g.addColorStop(1, b.outer);
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, bodyR, 0, Math.PI * 2);
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.globalAlpha = 0.6;
+      ctx.font = "600 10px ui-sans-serif, system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(220,228,245,0.8)";
+      try {
+        (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = "2px";
+      } catch {}
+      ctx.fillText(b.name.toUpperCase(), s.x, s.y + bodyR + 13);
+      try {
+        (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = "0px";
+      } catch {}
+      ctx.textAlign = "start";
+      bodies.push({ id: b.id, cx: s.x, cy: s.y, r: bodyR });
+    });
+    ctx.globalAlpha = 1;
+    bodiesRef.current = bodies;
+
     const projection = makeProjection();
     const path = geoPath(projection, ctx);
 
-    // Atmosphere glow (ring just outside the globe; inside is covered by ocean).
-    const glow = ctx.createRadialGradient(cx, cy, r * 0.9, cx, cy, r * 1.16);
-    glow.addColorStop(0, "rgba(64,128,235,0.28)");
-    glow.addColorStop(1, "rgba(64,128,235,0)");
+    // Atmosphere.
+    const glow = ctx.createRadialGradient(cx, cy, r * 0.92, cx, cy, r * 1.16);
+    glow.addColorStop(0, `rgba(${p.style.atmosphere},0.26)`);
+    glow.addColorStop(1, `rgba(${p.style.atmosphere},0)`);
     ctx.beginPath();
     ctx.arc(cx, cy, r * 1.16, 0, Math.PI * 2);
     ctx.fillStyle = glow;
     ctx.fill();
 
-    // Ocean sphere with a soft top-left highlight.
-    const ocean = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r);
-    ocean.addColorStop(0, "#16304d");
-    ocean.addColorStop(1, "#091420");
+    // Surface sphere.
+    const surface = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r);
+    surface.addColorStop(0, p.style.sphereInner);
+    surface.addColorStop(1, p.style.sphereOuter);
     ctx.beginPath();
     path({ type: "Sphere" });
-    ctx.fillStyle = ocean;
+    ctx.fillStyle = surface;
     ctx.fill();
 
-    // Graticule.
-    ctx.beginPath();
-    path(geoGraticule10());
-    ctx.strokeStyle = "rgba(255,255,255,0.05)";
-    ctx.lineWidth = 0.5;
-    ctx.stroke();
+    if (p.style.graticule) {
+      ctx.beginPath();
+      path(geoGraticule10());
+      ctx.strokeStyle = "rgba(255,255,255,0.05)";
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
 
-    // Countries, colored by the active value axis.
+    // Regions / countries, colored by the active metric.
     for (const f of p.features) {
       ctx.beginPath();
       path(f);
       ctx.fillStyle = p.colorForId(String(f.id));
       ctx.fill();
+      if (p.style.outlineFeatures) {
+        ctx.strokeStyle = "rgba(255,255,255,0.22)";
+        ctx.lineWidth = 0.6;
+        ctx.stroke();
+      }
     }
 
-    // Country borders.
     if (p.borders) {
       ctx.beginPath();
       path(p.borders);
-      ctx.strokeStyle = "rgba(7,12,20,0.55)";
+      ctx.strokeStyle = "rgba(5,9,16,0.55)";
       ctx.lineWidth = 0.5;
       ctx.stroke();
     }
 
-    // Highlight the selected region.
     if (p.selectedId) {
       const sel = p.features.find((f) => String(f.id) === p.selectedId);
       if (sel) {
@@ -173,10 +250,9 @@ export default function Globe({
       }
     }
 
-    // Crisp rim.
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(120,170,255,0.35)";
+    ctx.strokeStyle = `rgba(${p.style.atmosphere},0.4)`;
     ctx.lineWidth = 1;
     ctx.stroke();
 
@@ -186,7 +262,6 @@ export default function Globe({
   function schedule() {
     if (raf.current == null) raf.current = requestAnimationFrame(loop);
   }
-
   function requestRender() {
     dirty.current = true;
     schedule();
@@ -204,11 +279,7 @@ export default function Globe({
       const tw = tween.current;
       const t = clamp((now - tw.start) / tw.dur, 0, 1);
       const e = easeInOut(t);
-      v.rotation = [
-        lerpAngle(tw.from[0], tw.to[0], e),
-        tw.from[1] + (tw.to[1] - tw.from[1]) * e,
-        0,
-      ];
+      v.rotation = [lerpAngle(tw.from[0], tw.to[0], e), tw.from[1] + (tw.to[1] - tw.from[1]) * e, 0];
       needDraw = true;
       keepGoing = true;
       if (t >= 1) tween.current = null;
@@ -217,25 +288,17 @@ export default function Globe({
         v.rotation[0] = (v.rotation[0] + SPIN_SPEED) % 360;
         needDraw = true;
       }
-      keepGoing = true; // keep ticking so the idle timer keeps being checked
+      keepGoing = true;
     }
 
     if (needDraw) draw();
     if (keepGoing || dirty.current) schedule();
   }
 
-  // Pointer / wheel interaction. Bound imperatively so wheel can be non-passive.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    function center() {
-      const pts = [...pointers.current.values()];
-      return {
-        x: pts.reduce((s, p) => s + p.x, 0) / pts.length,
-        y: pts.reduce((s, p) => s + p.y, 0) / pts.length,
-      };
-    }
     function dist() {
       const pts = [...pointers.current.values()];
       return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
@@ -262,13 +325,10 @@ export default function Globe({
       lastInteraction.current = performance.now();
 
       if (pointers.current.size >= 2) {
-        // Pinch zoom around the midpoint.
         const d = dist();
-        if (g.pinchDist > 0) {
-          v.zoom = clamp(v.zoom * (d / g.pinchDist), MIN_ZOOM, MAX_ZOOM);
-        }
+        if (g.pinchDist > 0) v.zoom = clamp(v.zoom * (d / g.pinchDist), MIN_ZOOM, MAX_ZOOM);
         g.pinchDist = d;
-        g.moved += 50; // a pinch is never a tap
+        g.moved += 50;
         requestRender();
         return;
       }
@@ -278,31 +338,35 @@ export default function Globe({
       g.lastX = e.clientX;
       g.lastY = e.clientY;
       g.moved += Math.hypot(dx, dy);
-      // Natural "grab the surface" feel: degrees-per-pixel scales with zoom.
       const k = 57.29577951 / (v.baseScale * v.zoom);
-      v.rotation = [
-        v.rotation[0] + dx * k,
-        clamp(v.rotation[1] - dy * k, -89, 89),
-        0,
-      ];
+      v.rotation = [v.rotation[0] + dx * k, clamp(v.rotation[1] - dy * k, -89, 89), 0];
       requestRender();
     }
 
     function endTap(e: PointerEvent) {
       const g = gesture.current;
       const quick = performance.now() - g.downAt < 450;
-      if (g.moved < 6 && quick) {
-        const rect = canvas!.getBoundingClientRect();
-        const px = e.clientX - rect.left;
-        const py = e.clientY - rect.top;
-        const v = view.current;
-        // Ignore taps outside the globe disc.
-        if (Math.hypot(px - v.width / 2, py - v.height / 2) <= v.baseScale * v.zoom) {
-          const ll = makeProjection().invert?.([px, py]);
-          if (ll) {
-            const hit = propsRef.current.features.find((f) => geoContains(f, ll));
-            onSelectRef.current(hit ? String(hit.id) : null);
-          }
+      if (g.moved >= 6 || !quick) return;
+      const rect = canvas!.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      const v = view.current;
+      const globeR = v.baseScale * v.zoom;
+      const onGlobe = Math.hypot(px - v.width / 2, py - v.height / 2) <= globeR;
+
+      // Tapping a faint background world travels there.
+      for (const b of bodiesRef.current) {
+        if (Math.hypot(px - b.cx, py - b.cy) <= b.r + 6 && !onGlobe) {
+          onSwitchRef.current(b.id);
+          return;
+        }
+      }
+
+      if (onGlobe) {
+        const ll = makeProjection().invert?.([px, py]);
+        if (ll) {
+          const hit = propsRef.current.features.find((f) => geoContains(f, ll));
+          onSelectRef.current(hit ? String(hit.id) : null);
         }
       }
     }
@@ -312,8 +376,6 @@ export default function Globe({
       pointers.current.delete(e.pointerId);
       const g = gesture.current;
       g.pinchDist = 0;
-      // If a finger remains (e.g. ending a pinch), re-anchor the drag to it so
-      // the globe doesn't jump.
       const rest = [...pointers.current.values()][0];
       if (rest) {
         g.lastX = rest.x;
@@ -345,7 +407,6 @@ export default function Globe({
     };
   }, []);
 
-  // Size to the container and (re)build the starfield.
   useEffect(() => {
     const container = containerRef.current;
     const canvas = canvasRef.current;
@@ -366,12 +427,19 @@ export default function Globe({
       canvas!.style.width = w + "px";
       canvas!.style.height = h + "px";
 
-      const count = Math.round((w * h) / 9000);
+      const count = Math.round((w * h) / 5200);
       const stars = [];
       let s = 9301;
       const rnd = () => ((s = (s * 233280 + 49297) % 233280) / 233280);
       for (let i = 0; i < count; i++) {
-        stars.push({ x: rnd() * w, y: rnd() * h, r: rnd() * 1.1 + 0.2, a: rnd() * 0.5 + 0.2 });
+        const bright = rnd() > 0.93;
+        stars.push({
+          x: rnd() * w,
+          y: rnd() * h,
+          r: bright ? rnd() * 0.8 + 0.9 : rnd() * 0.9 + 0.25,
+          a: bright ? rnd() * 0.3 + 0.7 : rnd() * 0.45 + 0.18,
+          bright,
+        });
       }
       v.stars = stars;
       requestRender();
@@ -388,12 +456,10 @@ export default function Globe({
     };
   }, []);
 
-  // Repaint whenever the data or coloring changes.
   useEffect(() => {
     requestRender();
-  }, [features, borders, colorForId, selectedId]);
+  }, [features, borders, colorForId, selectedId, style, backgroundBodies]);
 
-  // Keep the loop alive when auto-rotate turns on.
   useEffect(() => {
     if (autoRotate) {
       lastInteraction.current = performance.now();
@@ -401,7 +467,6 @@ export default function Globe({
     }
   }, [autoRotate]);
 
-  // Fly to a searched location.
   useEffect(() => {
     if (!focusTarget) return;
     const v = view.current;
@@ -416,7 +481,6 @@ export default function Globe({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusTarget?.nonce]);
 
-  // Tidy up the animation frame on unmount.
   useEffect(() => {
     return () => {
       if (raf.current != null) cancelAnimationFrame(raf.current);

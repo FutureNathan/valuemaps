@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { AXES, MAX_TOPICS, TOPICS } from "@/lib/axes";
+import { WANTS, WORLD_IDS } from "@/lib/values";
 import { recordSubmission, storageEnabled } from "@/lib/store";
-import type { Submission } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const WANT_IDS = new Set(WANTS.map((w) => w.id));
 
 export async function POST(req: Request) {
   let body: Record<string, unknown>;
@@ -14,25 +15,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "bad_json" }, { status: 400 });
   }
 
-  const regionId = String(body?.regionId ?? "").slice(0, 8);
-  if (!/^\d+$/.test(regionId)) {
+  const worldId = String(body?.worldId ?? "earth");
+  if (!WORLD_IDS.includes(worldId as (typeof WORLD_IDS)[number])) {
+    return NextResponse.json({ ok: false, error: "bad_world" }, { status: 400 });
+  }
+
+  const regionId = String(body?.regionId ?? "");
+  if (!/^[a-z0-9:_-]{1,32}$/i.test(regionId)) {
     return NextResponse.json({ ok: false, error: "missing_region" }, { status: 400 });
   }
 
-  const axesIn = (body?.axes ?? {}) as Record<string, unknown>;
-  const axes = {} as Submission["axes"];
-  for (const a of AXES) {
-    const raw = Number(axesIn[a.id]);
-    axes[a.id] = Number.isFinite(raw) ? Math.max(-100, Math.min(100, Math.round(raw))) : 0;
-  }
-
-  const topicsIn = Array.isArray(body?.topics) ? (body.topics as unknown[]) : [];
-  const topics = topicsIn
-    .filter((t): t is string => typeof t === "string" && TOPICS.includes(t))
-    .slice(0, MAX_TOPICS);
+  const wantsIn = Array.isArray(body?.wants) ? (body.wants as unknown[]) : [];
+  const wants = Array.from(
+    new Set(wantsIn.filter((w): w is string => typeof w === "string" && WANT_IDS.has(w)))
+  ).slice(0, WANTS.length);
 
   try {
-    const aggregate = await recordSubmission({ regionId, axes, topics });
+    const aggregate = await recordSubmission({ worldId, regionId, wants });
     return NextResponse.json({ ok: true, persisted: storageEnabled, aggregate });
   } catch {
     return NextResponse.json({ ok: false, persisted: false, error: "write_failed" }, { status: 500 });

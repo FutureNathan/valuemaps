@@ -1,60 +1,62 @@
-import { AXES, type AxisId } from "./axes";
+import { TENSION_PAIRS, WANTS } from "./values";
 import type { Aggregate, Submission } from "./types";
 
+const WANT_IDS = new Set(WANTS.map((w) => w.id));
+
 export function emptyAggregate(): Aggregate {
-  const axes = {} as Aggregate["axes"];
-  for (const a of AXES) axes[a.id] = { sum: 0, n: 0 };
-  return { count: 0, axes, topics: {} };
+  return { count: 0, wants: {}, pairs: {} };
 }
 
-function clampAxis(v: number | undefined): number {
-  if (typeof v !== "number" || !Number.isFinite(v)) return 0;
-  return Math.max(-100, Math.min(100, Math.round(v)));
-}
-
-/** Fold a single response into a region's running totals. */
+/** Fold one response into a region's tallies. */
 export function applySubmission(base: Aggregate, sub: Submission): Aggregate {
-  const next: Aggregate = {
-    count: base.count + 1,
-    axes: {} as Aggregate["axes"],
-    topics: { ...base.topics },
-  };
-  for (const a of AXES) {
-    const cur = base.axes[a.id] ?? { sum: 0, n: 0 };
-    next.axes[a.id] = { sum: cur.sum + clampAxis(sub.axes[a.id]), n: cur.n + 1 };
+  const wants = { ...base.wants };
+  const pairs = { ...base.pairs };
+  const chosen = new Set(sub.wants.filter((w) => WANT_IDS.has(w)));
+  for (const w of chosen) wants[w] = (wants[w] ?? 0) + 1;
+  for (const p of TENSION_PAIRS) {
+    if (chosen.has(p.a) && chosen.has(p.b)) pairs[p.id] = (pairs[p.id] ?? 0) + 1;
   }
-  for (const t of sub.topics) next.topics[t] = (next.topics[t] ?? 0) + 1;
-  return next;
+  return { count: base.count + 1, wants, pairs };
 }
 
-/** Combine two aggregates (e.g. server data + the visitor's own pending vote). */
 export function mergeAggregates(a?: Aggregate, b?: Aggregate): Aggregate {
   const out = emptyAggregate();
   for (const src of [a, b]) {
     if (!src) continue;
     out.count += src.count;
-    for (const ax of AXES) {
-      const s = src.axes[ax.id];
-      if (s) {
-        out.axes[ax.id].sum += s.sum;
-        out.axes[ax.id].n += s.n;
-      }
-    }
-    for (const [t, c] of Object.entries(src.topics)) out.topics[t] = (out.topics[t] ?? 0) + c;
+    for (const [k, v] of Object.entries(src.wants)) out.wants[k] = (out.wants[k] ?? 0) + v;
+    for (const [k, v] of Object.entries(src.pairs)) out.pairs[k] = (out.pairs[k] ?? 0) + v;
   }
   return out;
 }
 
-export function axisAverage(agg: Aggregate | undefined, axis: AxisId): number | null {
-  const a = agg?.axes[axis];
-  if (!a || a.n === 0) return null;
-  return a.sum / a.n;
+/** Percentage of a region's people who want a given thing (or null if empty). */
+export function wantShare(agg: Aggregate | undefined, id: string): number | null {
+  if (!agg || !agg.count) return null;
+  return ((agg.wants[id] ?? 0) / agg.count) * 100;
 }
 
-export function topTopics(agg: Aggregate | undefined, limit = 5): { topic: string; count: number }[] {
-  if (!agg) return [];
-  return Object.entries(agg.topics)
-    .map(([topic, count]) => ({ topic, count }))
+export function topWants(
+  agg: Aggregate | undefined,
+  limit = 6
+): { id: string; count: number; share: number }[] {
+  if (!agg || !agg.count) return [];
+  return Object.entries(agg.wants)
+    .map(([id, count]) => ({ id, count, share: (count / agg.count) * 100 }))
     .sort((x, y) => y.count - x.count)
     .slice(0, limit);
+}
+
+/** The "you can want both" highlight: the most-endorsed tension pair. */
+export function topPair(
+  agg: Aggregate | undefined
+): { id: string; count: number; share: number } | null {
+  if (!agg || !agg.count) return null;
+  let best: { id: string; count: number; share: number } | null = null;
+  for (const [id, count] of Object.entries(agg.pairs)) {
+    if (count > 0 && (!best || count > best.count)) {
+      best = { id, count, share: (count / agg.count) * 100 };
+    }
+  }
+  return best;
 }

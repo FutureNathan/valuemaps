@@ -1,9 +1,8 @@
-// A "data source" is one lens on the map. The Community source is the values
-// people share on this site (the 5 axes from axes.ts). The others are real,
-// reputable open datasets, pre-joined to the globe in public/reference-data.json
-// by scripts/build-data.mjs.
+// A "data source" is one lens on the map. Community is what people share here
+// (colored by the share who want a given thing). The others are real, reputable
+// open datasets, pre-joined to the globe in public/reference-data.json.
 
-import { AXES } from "./axes";
+import { WANTS } from "./values";
 import {
   NEUTRAL_HEX,
   NO_DATA_COLOR,
@@ -16,13 +15,13 @@ export type Scale = "diverging" | "sequential";
 export interface Metric {
   id: string;
   label: string;
-  low: string; // legend label at the domain minimum
-  high: string; // legend label at the domain maximum
+  low: string;
+  high: string;
   domain: [number, number];
   scale: Scale;
   lowColor: string;
   highColor: string;
-  midColor?: string; // optional mid stop for sequential ramps
+  midColor?: string;
   decimals?: number;
   unit?: string;
 }
@@ -38,17 +37,18 @@ export interface DataSource {
   metrics: Metric[];
 }
 
-// Community = the platform's own responses, one metric per value axis.
-const communityMetrics: Metric[] = AXES.map((a) => ({
-  id: a.id,
-  label: a.label,
-  low: a.left,
-  high: a.right,
-  domain: [-100, 100],
-  scale: "diverging",
-  lowColor: a.leftColor,
-  highColor: a.rightColor,
+// Community: one metric per want — "share of people here who want this".
+const communityMetrics: Metric[] = WANTS.map((w) => ({
+  id: w.id,
+  label: w.short,
+  low: "Few",
+  high: "Most",
+  domain: [0, 100],
+  scale: "sequential",
+  lowColor: "#33405a",
+  highColor: w.color,
   decimals: 0,
+  unit: "%",
 }));
 
 const GOOD = { lowColor: "#b91c1c", midColor: "#f59e0b", highColor: "#16a34a" };
@@ -58,7 +58,7 @@ export const SOURCES: DataSource[] = [
     id: "community",
     label: "Community",
     kind: "community",
-    blurb: "What people on this site have shared about their own values.",
+    blurb: "What people here say they want — pick as many hopes as you hold.",
     metrics: communityMetrics,
   },
   {
@@ -126,7 +126,6 @@ export function legendGradient(m: Metric): string {
   return `linear-gradient(90deg, ${m.lowColor}, ${NEUTRAL_HEX} 50%, ${m.highColor})`;
 }
 
-/** 0..1 position of a value within a metric's domain (for marker placement). */
 export function normalizedPosition(m: Metric, v: number): number {
   const [min, max] = m.domain;
   return Math.max(0, Math.min(1, (v - min) / ((max - min) || 1)));

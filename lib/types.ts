@@ -1,24 +1,15 @@
-import type { AxisId } from "./axes";
-
-/** Running total for one axis in a region (so averages stay O(1) to update). */
-export interface AxisAgg {
-  sum: number;
-  n: number;
-}
-
-/** Everything we keep for a single region. Only aggregates are stored — never
- * individual responses — which keeps both storage and privacy cheap. */
+/** Everything we keep for one region. Only anonymous tallies are stored. */
 export interface Aggregate {
   count: number;
-  axes: Record<AxisId, AxisAgg>;
-  topics: Record<string, number>;
+  wants: Record<string, number>; // how many people want each thing
+  pairs: Record<string, number>; // how many want both halves of a "tension pair"
 }
 
 export type RegionAggregates = Record<string, Aggregate>;
 
-/** One person's contribution. */
+/** One person's response: the things they want for a place. */
 export interface Submission {
+  worldId: string;
   regionId: string;
-  axes: Record<AxisId, number>; // each clamped to -100..100
-  topics: string[];
+  wants: string[];
 }

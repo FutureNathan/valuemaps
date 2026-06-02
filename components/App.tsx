@@ -62,6 +62,7 @@ export default function App() {
   const [metricId, setMetricId] = useState("ladder");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [autoRotate, setAutoRotate] = useState(true);
+  const [satellite, setSatellite] = useState(false);
   const [focus, setFocus] = useState<FocusTarget | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -322,6 +323,7 @@ export default function App() {
           backgroundBodies={backgroundBodies}
           onSwitchWorld={switchWorld}
           initialRotation={world.initialRotation}
+          textureSrc={satellite ? `/tex-${worldId}.jpg` : null}
         />
         {loading && <div className="loading">Loading {world.name}…</div>}
       </div>
@@ -457,6 +459,14 @@ export default function App() {
           </section>
 
           <section className="block toggles">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={satellite}
+                onChange={(e) => setSatellite(e.target.checked)}
+              />
+              <span>Satellite imagery</span>
+            </label>
             <label className="toggle">
               <input
                 type="checkbox"

@@ -29,7 +29,7 @@ async function loadMap(file) {
   if (!res.ok) throw new Error(`${res.status} ${file}`);
   const buf = Buffer.from(await res.arrayBuffer());
   const { data, info } = await sharp(buf).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-  return { data, w: info.width, h: info.height, ch: info.channels };
+  return { buf, data, w: info.width, h: info.height, ch: info.channels };
 }
 
 function sampleBilinear(map, lon, lat, out) {
@@ -108,6 +108,13 @@ async function render(body) {
     .png({ compressionLevel: 9 })
     .toFile(join(PUBLIC, `body-${body.id}.png`));
   console.log(`  wrote public/body-${body.id}.png (${OUT}x${OUT})`);
+
+  // Equirectangular texture for the interactive "satellite" globe overlay.
+  await sharp(map.buf)
+    .resize(1024, 512, { fit: "fill" })
+    .jpeg({ quality: 82 })
+    .toFile(join(PUBLIC, `tex-${body.id}.jpg`));
+  console.log(`  wrote public/tex-${body.id}.jpg (1024x512)`);
 }
 
 async function main() {

@@ -43,6 +43,7 @@ interface GlobeProps {
   backgroundBodies: BackgroundBody[];
   onSwitchWorld: (id: string) => void;
   initialRotation: [number, number, number];
+  textureSrc: string | null;
 }
 
 const MIN_ZOOM = 0.85;
@@ -75,6 +76,7 @@ export default function Globe({
   backgroundBodies,
   onSwitchWorld,
   initialRotation,
+  textureSrc,
 }: GlobeProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -89,8 +91,8 @@ export default function Globe({
     stars: [] as { x: number; y: number; r: number; a: number; bright: boolean }[],
   });
 
-  const propsRef = useRef({ features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies });
-  propsRef.current = { features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies };
+  const propsRef = useRef({ features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc });
+  propsRef.current = { features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc };
 
   const dirty = useRef(true);
   const raf = useRef<number | null>(null);
@@ -100,6 +102,10 @@ export default function Globe({
   const gesture = useRef({ moved: 0, downAt: 0, lastX: 0, lastY: 0, pinchDist: 0 });
   const bodiesRef = useRef<{ id: string; cx: number; cy: number; r: number }[]>([]);
   const bodyImgs = useRef<Map<string, HTMLImageElement>>(new Map());
+  const texPixels = useRef<{ data: Uint8ClampedArray; w: number; h: number } | null>(null);
+  const texCanvas = useRef<HTMLCanvasElement | null>(null);
+  const lastTexKey = useRef("");
+  const lastRotate = useRef(0);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
   const onSwitchRef = useRef(onSwitchWorld);
@@ -124,6 +130,73 @@ export default function Globe({
       bodyImgs.current.set(id, img);
     }
     return img;
+  }
+
+  // Project the equirectangular texture onto the sphere for the current view,
+  // using the SAME projection that draws the countries (so they line up).
+  // Cached by orientation/zoom; recomputed only when the view changes.
+  function renderTexture(res: number): HTMLCanvasElement | null {
+    const tex = texPixels.current;
+    if (!tex) return null;
+    const v = view.current;
+    const cx = v.width / 2;
+    const cy = v.height / 2;
+    const r = v.baseScale * v.zoom;
+    const key = `${v.rotation[0].toFixed(1)},${v.rotation[1].toFixed(1)},${v.zoom.toFixed(3)},${res}`;
+    let tc = texCanvas.current;
+    if (tc && lastTexKey.current === key) return tc;
+    if (!tc) {
+      tc = document.createElement("canvas");
+      texCanvas.current = tc;
+    }
+    tc.width = res;
+    tc.height = res;
+    const tctx = tc.getContext("2d");
+    if (!tctx) return null;
+    const img = tctx.createImageData(res, res);
+    const out = img.data;
+    const invert = makeProjection().invert;
+    if (!invert) return null;
+    const tw = tex.w;
+    const th = tex.h;
+    const td = tex.data;
+    const pt: [number, number] = [0, 0];
+    const step = (2 * r) / res;
+    for (let j = 0; j < res; j++) {
+      const sy = cy - r + (j + 0.5) * step;
+      const dyN = (sy - cy) / r;
+      for (let i = 0; i < res; i++) {
+        const o = (j * res + i) * 4;
+        const sx = cx - r + (i + 0.5) * step;
+        const dxN = (sx - cx) / r;
+        const rho2 = dxN * dxN + dyN * dyN;
+        if (rho2 > 1) {
+          out[o + 3] = 0;
+          continue;
+        }
+        pt[0] = sx;
+        pt[1] = sy;
+        const ll = invert(pt);
+        if (!ll || Number.isNaN(ll[0])) {
+          out[o + 3] = 0;
+          continue;
+        }
+        let u = (((ll[0] + 180) / 360) * tw) | 0;
+        u = ((u % tw) + tw) % tw;
+        let vv = (((90 - ll[1]) / 180) * th) | 0;
+        if (vv < 0) vv = 0;
+        else if (vv >= th) vv = th - 1;
+        const s = (vv * tw + u) * 4;
+        const shade = 0.62 + 0.38 * Math.sqrt(1 - rho2); // gentle limb darkening
+        out[o] = td[s] * shade;
+        out[o + 1] = td[s + 1] * shade;
+        out[o + 2] = td[s + 2] * shade;
+        out[o + 3] = 255;
+      }
+    }
+    tctx.putImageData(img, 0, 0);
+    lastTexKey.current = key;
+    return tc;
   }
 
   function draw() {
@@ -235,16 +308,28 @@ export default function Globe({
     ctx.fillStyle = glow;
     ctx.fill();
 
-    // Surface sphere.
-    const surface = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r);
-    surface.addColorStop(0, p.style.sphereInner);
-    surface.addColorStop(1, p.style.sphereOuter);
-    ctx.beginPath();
-    path({ type: "Sphere" });
-    ctx.fillStyle = surface;
-    ctx.fill();
+    // Surface: real planet texture ("satellite"), else a flat shaded sphere.
+    const moving = performance.now() - lastRotate.current < 200;
+    const tc = p.textureSrc && texPixels.current ? renderTexture(moving ? 256 : 512) : null;
+    if (tc) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(tc, cx - r, cy - r, r * 2, r * 2);
+      ctx.restore();
+    } else {
+      const surface = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r);
+      surface.addColorStop(0, p.style.sphereInner);
+      surface.addColorStop(1, p.style.sphereOuter);
+      ctx.beginPath();
+      path({ type: "Sphere" });
+      ctx.fillStyle = surface;
+      ctx.fill();
+    }
 
-    if (p.style.graticule) {
+    if (p.style.graticule && !tc) {
       ctx.beginPath();
       path(geoGraticule10());
       ctx.strokeStyle = "rgba(255,255,255,0.05)";
@@ -252,14 +337,17 @@ export default function Globe({
       ctx.stroke();
     }
 
-    // Regions / countries, colored by the active metric.
+    // Regions / countries, colored by the active metric (translucent over texture).
+    const fillAlpha = tc ? 0.5 : 1;
     for (const f of p.features) {
       ctx.beginPath();
       path(f);
+      ctx.globalAlpha = fillAlpha;
       ctx.fillStyle = p.colorForId(String(f.id));
       ctx.fill();
+      ctx.globalAlpha = 1;
       if (p.style.outlineFeatures) {
-        ctx.strokeStyle = "rgba(255,255,255,0.22)";
+        ctx.strokeStyle = tc ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.22)";
         ctx.lineWidth = 0.6;
         ctx.stroke();
       }
@@ -268,8 +356,8 @@ export default function Globe({
     if (p.borders) {
       ctx.beginPath();
       path(p.borders);
-      ctx.strokeStyle = "rgba(5,9,16,0.55)";
-      ctx.lineWidth = 0.5;
+      ctx.strokeStyle = tc ? "rgba(255,255,255,0.5)" : "rgba(5,9,16,0.55)";
+      ctx.lineWidth = tc ? 0.6 : 0.5;
       ctx.stroke();
     }
 
@@ -316,11 +404,13 @@ export default function Globe({
       v.rotation = [lerpAngle(tw.from[0], tw.to[0], e), tw.from[1] + (tw.to[1] - tw.from[1]) * e, 0];
       needDraw = true;
       keepGoing = true;
+      lastRotate.current = now;
       if (t >= 1) tween.current = null;
     } else if (p.autoRotate && !document.hidden) {
       if (now - lastInteraction.current > IDLE_MS) {
         v.rotation[0] = (v.rotation[0] + SPIN_SPEED) % 360;
         needDraw = true;
+        lastRotate.current = now;
       }
       keepGoing = true;
     }
@@ -357,6 +447,7 @@ export default function Globe({
       const v = view.current;
       const g = gesture.current;
       lastInteraction.current = performance.now();
+      lastRotate.current = performance.now();
 
       if (pointers.current.size >= 2) {
         const d = dist();
@@ -424,6 +515,7 @@ export default function Globe({
       const v = view.current;
       v.zoom = clamp(v.zoom * Math.exp(-e.deltaY * 0.0015), MIN_ZOOM, MAX_ZOOM);
       lastInteraction.current = performance.now();
+      lastRotate.current = performance.now();
       requestRender();
     }
 
@@ -492,7 +584,41 @@ export default function Globe({
 
   useEffect(() => {
     requestRender();
-  }, [features, borders, colorForId, selectedId, style, backgroundBodies]);
+  }, [features, borders, colorForId, selectedId, style, backgroundBodies, textureSrc]);
+
+  // Load the equirectangular texture for "satellite" mode and grab its pixels.
+  useEffect(() => {
+    texPixels.current = null;
+    lastTexKey.current = "";
+    if (!textureSrc) {
+      requestRender();
+      return;
+    }
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (cancelled) return;
+      const c = document.createElement("canvas");
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const cc = c.getContext("2d");
+      if (!cc) return;
+      cc.drawImage(img, 0, 0);
+      try {
+        const id = cc.getImageData(0, 0, c.width, c.height);
+        texPixels.current = { data: id.data, w: c.width, h: c.height };
+        lastTexKey.current = "";
+        requestRender();
+      } catch {
+        // ignore (e.g. canvas tainted) — falls back to the flat sphere
+      }
+    };
+    img.src = textureSrc;
+    return () => {
+      cancelled = true;
+      img.onload = null;
+    };
+  }, [textureSrc]);
 
   useEffect(() => {
     if (autoRotate) {

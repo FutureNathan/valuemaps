@@ -22,6 +22,10 @@ You can recolor the globe by different **data sources**:
 the background and the globe becomes that world — pick named regions (Tranquility
 Base, Olympus Mons, Jezero Crater…) and say what *those* places should stand for.
 
+Flip on **Satellite imagery** (sidebar) to drape the real planet texture under the
+value overlay — borders and colors stay perfectly aligned because the texture is
+projected with the same map projection that draws the countries.
+
 Inspired by [Hoodmaps](https://levels.io/hoodmaps/) and the look of a
 [3D satellite globe](https://earth3dmap.com/3d-globe/), with cool, optimistic
 space vibes — and cheap to run.
@@ -123,13 +127,14 @@ lib/
 scripts/
   build-data.mjs         fetches + joins the reference datasets
   build-images.mjs       renders the OG share card + icons
-  build-bodies.mjs       renders shaded Earth/Moon/Mars planet images
+  build-bodies.mjs       renders planet images + satellite textures
 supabase/
   schema.sql             one-table schema for shared responses
 public/
   countries-110m.json    Natural Earth countries (world-atlas)
   reference-data.json     generated reference data (committed)
   body-*.png             shaded planet images for the travel bodies
+  tex-*.jpg              equirectangular maps for satellite mode
 ```
 
 Country geometry is from [world-atlas](https://github.com/topojson/world-atlas)

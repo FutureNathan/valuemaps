@@ -67,7 +67,9 @@ them across everyone, connect Supabase (free tier) — two steps:
    Variables → add → Redeploy*). It's a **secret** — server-only, never
    `NEXT_PUBLIC_*`.
 
-The sidebar footer then shows **"Live & shared · Supabase."**
+The sidebar footer then shows **"Live & shared · Supabase,"** or visit
+**`/api/health`** to confirm from a URL — it returns `{ storage, backend, connected }`
+(e.g. `{"backend":"supabase","connected":true}`).
 
 The project URL is already wired into `lib/store.ts` (it's public, not secret),
 so the service-role key is all you need; set `SUPABASE_URL` to point at a

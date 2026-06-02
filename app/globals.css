@@ -634,6 +634,25 @@ button {
   height: 16px;
 }
 
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.slider-row span {
+  white-space: nowrap;
+}
+
+.slider-row input[type="range"] {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+}
+
 .travel-hint {
   font-size: 11.5px;
   color: var(--muted);

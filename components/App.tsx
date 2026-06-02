@@ -61,8 +61,9 @@ export default function App() {
   const [sourceId, setSourceId] = useState("happiness");
   const [metricId, setMetricId] = useState("ladder");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [autoRotate, setAutoRotate] = useState(true);
+  const [autoRotate, setAutoRotate] = useState(false);
   const [satellite, setSatellite] = useState(false);
+  const [overlay, setOverlay] = useState(0.5);
   const [focus, setFocus] = useState<FocusTarget | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -73,6 +74,7 @@ export default function App() {
   const worldIdRef = useRef(worldId);
   worldIdRef.current = worldId;
   const loadedWorlds = useRef<Set<string>>(new Set(["earth"]));
+  const prefsLoaded = useRef(false);
 
   const world = WORLD_BY_ID[worldId];
   const availableSources = world.hasReference ? SOURCES : SOURCES.filter((s) => s.kind === "community");
@@ -153,7 +155,13 @@ export default function App() {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) setLocal(JSON.parse(raw) as LocalState);
     } catch {}
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) setAutoRotate(false);
+    try {
+      const prefs = JSON.parse(localStorage.getItem("valuemaps:prefs") || "{}");
+      if (typeof prefs.satellite === "boolean") setSatellite(prefs.satellite);
+      if (typeof prefs.overlay === "number") setOverlay(prefs.overlay);
+      if (typeof prefs.autoRotate === "boolean") setAutoRotate(prefs.autoRotate);
+    } catch {}
+    prefsLoaded.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -274,6 +282,14 @@ export default function App() {
 
   useEffect(() => setActiveIdx(0), [query]);
 
+  // Remember UI preferences across visits.
+  useEffect(() => {
+    if (!prefsLoaded.current) return;
+    try {
+      localStorage.setItem("valuemaps:prefs", JSON.stringify({ satellite, overlay, autoRotate }));
+    } catch {}
+  }, [satellite, overlay, autoRotate]);
+
   function onSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -324,6 +340,7 @@ export default function App() {
           onSwitchWorld={switchWorld}
           initialRotation={world.initialRotation}
           textureSrc={satellite ? `/tex-${worldId}.jpg` : null}
+          overlay={overlay}
         />
         {loading && <div className="loading">Loading {world.name}…</div>}
       </div>
@@ -467,6 +484,19 @@ export default function App() {
               />
               <span>Satellite imagery</span>
             </label>
+            {satellite && (
+              <label className="slider-row">
+                <span>Data&nbsp;↔&nbsp;terrain</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={Math.round(overlay * 100)}
+                  onChange={(e) => setOverlay(Number(e.target.value) / 100)}
+                  aria-label="Overlay opacity"
+                />
+              </label>
+            )}
             <label className="toggle">
               <input
                 type="checkbox"

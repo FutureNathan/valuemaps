@@ -44,6 +44,7 @@ interface GlobeProps {
   onSwitchWorld: (id: string) => void;
   initialRotation: [number, number, number];
   textureSrc: string | null;
+  overlay: number;
 }
 
 const MIN_ZOOM = 0.85;
@@ -77,6 +78,7 @@ export default function Globe({
   onSwitchWorld,
   initialRotation,
   textureSrc,
+  overlay,
 }: GlobeProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -91,8 +93,8 @@ export default function Globe({
     stars: [] as { x: number; y: number; r: number; a: number; bright: boolean }[],
   });
 
-  const propsRef = useRef({ features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc });
-  propsRef.current = { features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc };
+  const propsRef = useRef({ features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc, overlay });
+  propsRef.current = { features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc, overlay };
 
   const dirty = useRef(true);
   const raf = useRef<number | null>(null);
@@ -338,7 +340,7 @@ export default function Globe({
     }
 
     // Regions / countries, colored by the active metric (translucent over texture).
-    const fillAlpha = tc ? 0.5 : 1;
+    const fillAlpha = tc ? Math.max(0, Math.min(1, p.overlay)) : 1;
     for (const f of p.features) {
       ctx.beginPath();
       path(f);
@@ -584,7 +586,7 @@ export default function Globe({
 
   useEffect(() => {
     requestRender();
-  }, [features, borders, colorForId, selectedId, style, backgroundBodies, textureSrc]);
+  }, [features, borders, colorForId, selectedId, style, backgroundBodies, textureSrc, overlay]);
 
   // Load the equirectangular texture for "satellite" mode and grab its pixels.
   useEffect(() => {

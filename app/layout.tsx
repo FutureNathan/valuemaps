@@ -1,14 +1,33 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
+// Absolute URLs for og:image etc. Uses the Vercel production domain in prod,
+// or set NEXT_PUBLIC_SITE_URL to your custom domain.
+const siteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : "http://localhost:3000");
+
+const description =
+  "Pick what you want for where you live — even hopes they say you can't have together. A 3D globe of the world's values, with real open data, across Earth, the Moon and Mars.";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: "Value Maps — what the world wants",
-  description:
-    "Spin a 3D globe and share what you want for where you live — pick every hope you hold, even ones people say you can't have together. Compare against real open data, and explore the Moon and Mars too.",
+  description,
+  applicationName: "Value Maps",
   openGraph: {
-    title: "Value Maps",
-    description: "A 3D globe of what the world actually wants. No left–right boxes.",
+    title: "Value Maps — what the world wants",
+    description,
+    url: "/",
+    siteName: "Value Maps",
     type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Value Maps — what the world wants",
+    description: "A 3D globe of what the world actually wants. No left–right boxes — pick every hope you hold.",
   },
 };
 

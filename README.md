@@ -65,6 +65,13 @@ On Vercel: **Storage → Marketplace → Upstash Redis** injects these for you.
 Locally, copy `.env.example` to `.env.local`. The footer flips from "demo mode"
 to "live" once connected. Each world is stored separately (`vm:agg:earth`, `…:moon`, `…:mars`).
 
+### Social preview
+
+Link previews (iMessage, WhatsApp, Twitter, Slack…) use a generated share card,
+star favicon and apple-touch-icon. They resolve to absolute URLs automatically on
+Vercel; for a custom domain, set `NEXT_PUBLIC_SITE_URL=https://yourdomain`.
+Regenerate the card and icons with `npm run build:images`.
+
 ## The reference data
 
 `public/reference-data.json` is **generated and committed** by
@@ -106,6 +113,7 @@ lib/
   values.ts worlds.ts sources.ts colors.ts aggregate.ts store.ts types.ts
 scripts/
   build-data.mjs         fetches + joins the reference datasets
+  build-images.mjs       renders the OG share card + icons
 public/
   countries-110m.json    Natural Earth countries (world-atlas)
   reference-data.json     generated reference data (committed)

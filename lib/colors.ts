@@ -21,7 +21,8 @@ function mix(c1: string, c2: string, t: number): string {
 }
 
 // Desaturated slate for "balanced" regions (the center of every axis).
-const NEUTRAL = "#5b6b82";
+export const NEUTRAL_HEX = "#5b6b82";
+const NEUTRAL = NEUTRAL_HEX;
 
 /**
  * Diverging color for a value in [-100, 100].
@@ -31,6 +32,37 @@ export function divergingColor(value: number, leftColor: string, rightColor: str
   const v = Math.max(-100, Math.min(100, value));
   if (v < 0) return mix(NEUTRAL, leftColor, -v / 100);
   return mix(NEUTRAL, rightColor, v / 100);
+}
+
+/** Diverging color across an arbitrary domain, centered on the domain midpoint. */
+export function divergingColorDomain(
+  value: number,
+  domain: [number, number],
+  lowColor: string,
+  highColor: string
+): string {
+  const [min, max] = domain;
+  const mid = (min + max) / 2;
+  const half = (max - min) / 2 || 1;
+  const t = Math.max(-1, Math.min(1, (value - mid) / half));
+  if (t < 0) return mix(NEUTRAL, lowColor, -t);
+  return mix(NEUTRAL, highColor, t);
+}
+
+/** Sequential color ramp across a domain (optionally through a mid color). */
+export function sequentialColor(
+  value: number,
+  domain: [number, number],
+  lowColor: string,
+  highColor: string,
+  midColor?: string
+): string {
+  const [min, max] = domain;
+  const t = Math.max(0, Math.min(1, (value - min) / ((max - min) || 1)));
+  if (midColor) {
+    return t < 0.5 ? mix(lowColor, midColor, t * 2) : mix(midColor, highColor, (t - 0.5) * 2);
+  }
+  return mix(lowColor, highColor, t);
 }
 
 /** Fill for regions we have no data for. */

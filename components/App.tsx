@@ -21,6 +21,8 @@ import {
   legendGradient,
   metricColor,
   normalizedPosition,
+  type DataSource,
+  type Metric,
 } from "@/lib/sources";
 import {
   applySubmission,
@@ -75,6 +77,7 @@ export default function App() {
   worldIdRef.current = worldId;
   const loadedWorlds = useRef<Set<string>>(new Set(["earth"]));
   const prefsLoaded = useRef(false);
+  const headDrag = useRef<{ x: number; y: number } | null>(null);
 
   const world = WORLD_BY_ID[worldId];
   const availableSources = world.hasReference ? SOURCES : SOURCES.filter((s) => s.kind === "community");
@@ -309,6 +312,25 @@ export default function App() {
     }
   }
 
+  // Mobile bottom-sheet: swipe up/down to open/close, tap to toggle.
+  function onHeadPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if ((e.target as HTMLElement).closest(".collapse-btn")) return;
+    headDrag.current = { x: e.clientX, y: e.clientY };
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  }
+  function onHeadPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    const d = headDrag.current;
+    headDrag.current = null;
+    if (!d) return;
+    const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
+    if (Math.abs(dy) > 26 && Math.abs(dy) > Math.abs(dx)) {
+      setSidebarOpen(dy < 0); // swipe up opens, down closes
+    } else if (Math.abs(dx) < 12 && Math.abs(dy) < 12) {
+      setSidebarOpen((s) => !s); // tap toggles
+    }
+  }
+
   const backgroundBodies: BackgroundBody[] = useMemo(() => {
     const order = ["earth", "moon", "mars"];
     const i = order.indexOf(worldId);
@@ -347,19 +369,24 @@ export default function App() {
 
       {collapsed && (
         <button className="sidebar-open-btn" onClick={() => setCollapsed(false)} aria-label="Open menu">
-          <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M1 3h14M1 8h14M1 13h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
-          <span>Menu</span>
+          <MiniLegend source={source} metric={metric} />
+          <span className="reopen-caret">›</span>
         </button>
       )}
 
+      {sidebarOpen && <div className="scrim" onClick={() => setSidebarOpen(false)} />}
+
       <aside className={`sidebar ${sidebarOpen ? "open" : ""} ${collapsed ? "collapsed" : ""}`}>
-        <div className="sidebar-head" onClick={() => setSidebarOpen((s) => !s)}>
+        <div className="sidebar-head" onPointerDown={onHeadPointerDown} onPointerUp={onHeadPointerUp}>
           <span className="grab" />
-          <div className="brand">
-            <h1>Value Maps</h1>
-            <p>{world.tagline}</p>
+          <div className="head-content">
+            <div className="brand">
+              <h1>Value Maps</h1>
+              <p>{world.tagline}</p>
+            </div>
+            <div className="mini-head">
+              <MiniLegend source={source} metric={metric} />
+            </div>
           </div>
           <button
             className="collapse-btn"
@@ -528,6 +555,21 @@ export default function App() {
         onClose={() => setFormOpen(false)}
         onSubmit={handleSubmit}
       />
+    </div>
+  );
+}
+
+function MiniLegend({ source, metric }: { source: DataSource; metric: Metric }) {
+  return (
+    <div className="mini-legend">
+      <div className="mini-legend-title">
+        {source.label} · {metric.label}
+      </div>
+      <div className="legend-bar" style={{ background: legendGradient(metric) }} />
+      <div className="legend-ends">
+        <span>{metric.low}</span>
+        <span>{metric.high}</span>
+      </div>
     </div>
   );
 }

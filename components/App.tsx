@@ -66,6 +66,7 @@ export default function App() {
   const [autoRotate, setAutoRotate] = useState(false);
   const [satellite, setSatellite] = useState(false);
   const [overlay, setOverlay] = useState(0.5);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [focus, setFocus] = useState<FocusTarget | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -343,6 +344,7 @@ export default function App() {
 
   const selName = selectedId ? namesRef.current.get(selectedId) ?? null : null;
   const selectedAgg = selectedId ? realFor(selectedId) : undefined;
+  const selValue = selectedId ? valueFor(selectedId, metricId) : null;
   const loading = features.length === 0;
 
   return (
@@ -369,7 +371,7 @@ export default function App() {
 
       {collapsed && (
         <button className="sidebar-open-btn" onClick={() => setCollapsed(false)} aria-label="Open menu">
-          <MiniLegend source={source} metric={metric} />
+          <Peek name={selName} value={selValue} source={source} metric={metric} />
           <span className="reopen-caret">›</span>
         </button>
       )}
@@ -385,7 +387,7 @@ export default function App() {
               <p>{world.tagline}</p>
             </div>
             <div className="mini-head">
-              <MiniLegend source={source} metric={metric} />
+              <Peek name={selName} value={selValue} source={source} metric={metric} />
             </div>
           </div>
           <button
@@ -436,60 +438,13 @@ export default function App() {
             )}
           </div>
 
-          <section className="block">
-            <div className="block-title">Data source</div>
-            <div className="chip-row">
-              {availableSources.map((s) => (
-                <button
-                  key={s.id}
-                  className={`pchip ${s.id === sourceId ? "on" : ""}`}
-                  onClick={() => pickSource(s.id)}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-            <p className="source-blurb">{source.blurb}</p>
-          </section>
-
-          <section className="block">
-            <div className="block-title">Color the map by</div>
-            <div className="chip-row">
-              {source.metrics.map((m) => (
-                <button
-                  key={m.id}
-                  className={`pchip ${m.id === metricId ? "on" : ""}`}
-                  onClick={() => setMetricId(m.id)}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
-            <div className="legend-bar" style={{ background: legendGradient(metric) }} />
-            <div className="legend-ends">
-              <span>{metric.low}</span>
-              <span>{metric.high}</span>
-            </div>
-            {source.kind === "reference" && source.attribution && (
-              <a className="source-credit" href={source.url} target="_blank" rel="noreferrer">
-                {source.attribution}
-                {source.year ? ` · ${source.year}` : ""} ↗
-              </a>
-            )}
-          </section>
-
-          <button className="primary-btn" onClick={() => setFormOpen(true)}>
-            {local ? "Update what you want" : "Share what you want"}
-          </button>
-
           <section className="block region">
             {!selectedId ? (
               <div className="hint">
-                Tap any {world.kind === "countries" ? "country" : "place"}, or search above, to see
-                its profile.
+                Tap any {world.kind === "countries" ? "country" : "place"} to see its values.
               </div>
             ) : source.kind === "community" ? (
-              <CommunityPanel name={selName} agg={selectedAgg} onAdd={() => setFormOpen(true)} />
+              <CommunityPanel name={selName} agg={selectedAgg} />
             ) : (
               <ReferencePanel
                 name={selName}
@@ -502,47 +457,98 @@ export default function App() {
             )}
           </section>
 
-          <section className="block toggles">
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={satellite}
-                onChange={(e) => setSatellite(e.target.checked)}
-              />
-              <span>Satellite imagery</span>
-            </label>
-            {satellite && (
-              <label className="slider-row">
-                <span>Data&nbsp;↔&nbsp;terrain</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  value={Math.round(overlay * 100)}
-                  onChange={(e) => setOverlay(Number(e.target.value) / 100)}
-                  aria-label="Overlay opacity"
-                />
+          <section className="block">
+            <div className="control-row">
+              <label className="ctl">
+                <span>Data</span>
+                <select value={sourceId} onChange={(e) => pickSource(e.target.value)}>
+                  {availableSources.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
               </label>
-            )}
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={autoRotate}
-                onChange={(e) => setAutoRotate(e.target.checked)}
-              />
-              <span>Auto-spin</span>
-            </label>
-            <span className="travel-hint">Tap a faint world in space to travel there.</span>
+              <label className="ctl">
+                <span>Color by</span>
+                <select value={metricId} onChange={(e) => setMetricId(e.target.value)}>
+                  {source.metrics.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="legend-bar" style={{ background: legendGradient(metric) }} />
+            <div className="legend-ends">
+              <span>{metric.low}</span>
+              <span>{metric.high}</span>
+            </div>
           </section>
 
-          <footer className="foot">
-            <span className={`dot ${storageLive ? "dot-live" : "dot-demo"}`} />
-            {storageLive
-              ? `Live & shared${
-                  backend === "supabase" ? " · Supabase" : backend === "upstash" ? " · Upstash" : ""
-                }.`
-              : "Community is in demo mode — add a database to save responses."}
-          </footer>
+          <button className="primary-btn" onClick={() => setFormOpen(true)}>
+            {local ? "Update what you want" : "Share what you want"}
+          </button>
+
+          <section className="block">
+            <button
+              className="disclosure"
+              onClick={() => setOptionsOpen((o) => !o)}
+              aria-expanded={optionsOpen}
+            >
+              <span>Options &amp; data source</span>
+              <span>{optionsOpen ? "▾" : "▸"}</span>
+            </button>
+            {optionsOpen && (
+              <div className="options">
+                <label className="toggle">
+                  <input
+                    type="checkbox"
+                    checked={satellite}
+                    onChange={(e) => setSatellite(e.target.checked)}
+                  />
+                  <span>Satellite imagery</span>
+                </label>
+                {satellite && (
+                  <label className="slider-row">
+                    <span>Data&nbsp;↔&nbsp;terrain</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={Math.round(overlay * 100)}
+                      onChange={(e) => setOverlay(Number(e.target.value) / 100)}
+                      aria-label="Overlay opacity"
+                    />
+                  </label>
+                )}
+                <label className="toggle">
+                  <input
+                    type="checkbox"
+                    checked={autoRotate}
+                    onChange={(e) => setAutoRotate(e.target.checked)}
+                  />
+                  <span>Auto-spin</span>
+                </label>
+                {source.kind === "reference" && source.attribution && (
+                  <a className="source-credit" href={source.url} target="_blank" rel="noreferrer">
+                    Data: {source.attribution}
+                    {source.year ? ` · ${source.year}` : ""} ↗
+                  </a>
+                )}
+                <div className="foot">
+                  <span className={`dot ${storageLive ? "dot-live" : "dot-demo"}`} />
+                  {storageLive
+                    ? `Live & shared${
+                        backend === "supabase" ? " · Supabase" : backend === "upstash" ? " · Upstash" : ""
+                      }.`
+                    : "Demo mode — saved on this device."}
+                </div>
+                <span className="travel-hint">Tip: tap a faint world in space to travel there.</span>
+              </div>
+            )}
+          </section>
         </div>
       </aside>
 
@@ -559,16 +565,35 @@ export default function App() {
   );
 }
 
-function MiniLegend({ source, metric }: { source: DataSource; metric: Metric }) {
+// Compact summary shown when the menu is closed/collapsed: the selected place +
+// its value if one is selected, otherwise what the map is currently showing.
+function Peek({
+  name,
+  value,
+  source,
+  metric,
+}: {
+  name: string | null;
+  value: number | null;
+  source: DataSource;
+  metric: Metric;
+}) {
   return (
     <div className="mini-legend">
-      <div className="mini-legend-title">
-        {source.label} · {metric.label}
-      </div>
+      <div className="mini-legend-title">{name ?? `${source.label} · ${metric.label}`}</div>
       <div className="legend-bar" style={{ background: legendGradient(metric) }} />
       <div className="legend-ends">
-        <span>{metric.low}</span>
-        <span>{metric.high}</span>
+        {name ? (
+          <>
+            <span>{metric.label}</span>
+            <span className="metric-val">{value != null ? formatValue(metric, value) : "—"}</span>
+          </>
+        ) : (
+          <>
+            <span>{metric.low}</span>
+            <span>{metric.high}</span>
+          </>
+        )}
       </div>
     </div>
   );
@@ -577,11 +602,9 @@ function MiniLegend({ source, metric }: { source: DataSource; metric: Metric }) 
 function CommunityPanel({
   name,
   agg,
-  onAdd,
 }: {
   name: string | null;
   agg: Aggregate | undefined;
-  onAdd: () => void;
 }) {
   const count = agg?.count ?? 0;
   const wants = topWants(agg, 6);
@@ -633,10 +656,6 @@ function CommunityPanel({
       ) : (
         <div className="hint">Be the first to share what people here want.</div>
       )}
-
-      <button className="ghost-btn" onClick={onAdd}>
-        Add your voice for {name}
-      </button>
     </>
   );
 }
@@ -698,13 +717,6 @@ function ReferencePanel({
         </div>
       ) : (
         <div className="hint">No data for {name} in this dataset.</div>
-      )}
-
-      {source.attribution && (
-        <a className="source-credit" href={source.url} target="_blank" rel="noreferrer">
-          Source: {source.attribution}
-          {source.year ? ` · ${source.year}` : ""} ↗
-        </a>
       )}
     </>
   );

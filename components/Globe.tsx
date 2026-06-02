@@ -137,27 +137,47 @@ export default function Globe({
   // Project the equirectangular texture onto the sphere for the current view,
   // using the SAME projection that draws the countries (so they line up).
   // Cached by orientation/zoom; recomputed only when the view changes.
-  function renderTexture(res: number, smooth: boolean): HTMLCanvasElement | null {
+  // Project the equirectangular texture onto the sphere for the current view,
+  // using the SAME projection that draws the countries (so they line up).
+  // Renders only the on-screen slice of the globe at screen resolution, so
+  // zooming in stays crisp while the work stays bounded. Cached by view.
+  function renderTexture(
+    moving: boolean
+  ): { canvas: HTMLCanvasElement; rx: number; ry: number; rw: number; rh: number } | null {
     const tex = texPixels.current;
     if (!tex) return null;
     const v = view.current;
     const cx = v.width / 2;
     const cy = v.height / 2;
     const r = v.baseScale * v.zoom;
+    const rx = Math.max(0, Math.floor(cx - r));
+    const ry = Math.max(0, Math.floor(cy - r));
+    const rw = Math.min(v.width, Math.ceil(cx + r)) - rx;
+    const rh = Math.min(v.height, Math.ceil(cy + r)) - ry;
+    if (rw <= 0 || rh <= 0) return null;
+    const q = moving ? 0.5 : Math.min(v.dpr, 2);
+    const maxPix = moving ? 200000 : 900000;
+    let ow = Math.max(1, Math.round(rw * q));
+    let oh = Math.max(1, Math.round(rh * q));
+    if (ow * oh > maxPix) {
+      const s = Math.sqrt(maxPix / (ow * oh));
+      ow = Math.max(1, Math.round(ow * s));
+      oh = Math.max(1, Math.round(oh * s));
+    }
     const key = `${v.rotation[0].toFixed(1)},${v.rotation[1].toFixed(1)},${v.zoom.toFixed(
       3
-    )},${res},${smooth ? 1 : 0},${tex.w}`;
+    )},${rx},${ry},${rw},${rh},${ow},${oh},${moving ? 0 : 1},${tex.w}`;
     let tc = texCanvas.current;
-    if (tc && lastTexKey.current === key) return tc;
+    if (tc && lastTexKey.current === key) return { canvas: tc, rx, ry, rw, rh };
     if (!tc) {
       tc = document.createElement("canvas");
       texCanvas.current = tc;
     }
-    tc.width = res;
-    tc.height = res;
+    tc.width = ow;
+    tc.height = oh;
     const tctx = tc.getContext("2d");
     if (!tctx) return null;
-    const img = tctx.createImageData(res, res);
+    const img = tctx.createImageData(ow, oh);
     const out = img.data;
     const invert = makeProjection().invert;
     if (!invert) return null;
@@ -165,13 +185,13 @@ export default function Globe({
     const th = tex.h;
     const td = tex.data;
     const pt: [number, number] = [0, 0];
-    const step = (2 * r) / res;
-    for (let j = 0; j < res; j++) {
-      const sy = cy - r + (j + 0.5) * step;
+    const smooth = !moving;
+    for (let j = 0; j < oh; j++) {
+      const sy = ry + ((j + 0.5) / oh) * rh;
       const dyN = (sy - cy) / r;
-      for (let i = 0; i < res; i++) {
-        const o = (j * res + i) * 4;
-        const sx = cx - r + (i + 0.5) * step;
+      for (let i = 0; i < ow; i++) {
+        const o = (j * ow + i) * 4;
+        const sx = rx + ((i + 0.5) / ow) * rw;
         const dxN = (sx - cx) / r;
         const rho2 = dxN * dxN + dyN * dyN;
         if (rho2 > 1) {
@@ -231,7 +251,7 @@ export default function Globe({
     }
     tctx.putImageData(img, 0, 0);
     lastTexKey.current = key;
-    return tc;
+    return { canvas: tc, rx, ry, rw, rh };
   }
 
   function draw() {
@@ -345,19 +365,14 @@ export default function Globe({
 
     // Surface: real planet texture ("satellite"), else a flat shaded sphere.
     const moving = performance.now() - lastRotate.current < 200;
-    let tc: HTMLCanvasElement | null = null;
-    if (p.textureSrc && texPixels.current) {
-      // Low res + nearest while moving; device-pixel res + bilinear once settled.
-      const res = moving ? 320 : Math.max(256, Math.min(768, Math.round(2 * r * v.dpr)));
-      tc = renderTexture(res, !moving);
-    }
+    const tc = p.textureSrc && texPixels.current ? renderTexture(moving) : null;
     if (tc) {
       ctx.save();
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.closePath();
       ctx.clip();
-      ctx.drawImage(tc, cx - r, cy - r, r * 2, r * 2);
+      ctx.drawImage(tc.canvas, tc.rx, tc.ry, tc.rw, tc.rh);
       ctx.restore();
     } else {
       const surface = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r);

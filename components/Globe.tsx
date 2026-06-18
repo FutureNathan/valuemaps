@@ -683,6 +683,38 @@ export default function Globe({
     }, 260);
   }
 
+  // Zoom so the geographic point under (clientX, clientY) stays put — i.e. zoom
+  // toward the cursor instead of the screen center. The globe is always centred,
+  // so we set the new zoom and then rotate to re-anchor that point under the
+  // cursor (same screen-delta → rotation linearization used for dragging).
+  function zoomAt(clientX: number, clientY: number, nextZoom: number) {
+    const v = view.current;
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      v.zoom = nextZoom;
+      requestRender();
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const px = clientX - rect.left;
+    const py = clientY - rect.top;
+    const ll = makeProjection().invert?.([px, py]);
+    v.zoom = nextZoom;
+    if (ll && !Number.isNaN(ll[0])) {
+      for (let iter = 0; iter < 4; iter++) {
+        const sp = makeProjection()([ll[0], ll[1]]);
+        if (!sp) break;
+        const dx = px - sp[0];
+        const dy = py - sp[1];
+        if (Math.abs(dx) < 0.25 && Math.abs(dy) < 0.25) break;
+        const k = 57.29577951 / (v.baseScale * v.zoom);
+        v.rotation = [v.rotation[0] + dx * k, clamp(v.rotation[1] - dy * k, -89, 89), 0];
+      }
+    }
+    lastRotate.current = performance.now();
+    requestRender();
+  }
+
   function loop(now: number) {
     raf.current = null;
     const v = view.current;
@@ -754,14 +786,19 @@ export default function Globe({
 
       if (pointers.current.size >= 2) {
         const d = dist();
-        if (g.pinchDist > 0) v.zoom = clamp(v.zoom * (d / g.pinchDist), MIN_ZOOM, maxZoom.current);
+        if (g.pinchDist > 0) {
+          const pts = [...pointers.current.values()];
+          const midX = (pts[0].x + pts[1].x) / 2;
+          const midY = (pts[0].y + pts[1].y) / 2;
+          const target = clamp(v.zoom * (d / g.pinchDist), MIN_ZOOM, maxZoom.current);
+          zoomAt(midX, midY, target);
+        }
         g.pinchDist = d;
         g.moved += 50;
         if (!g.interacted) {
           g.interacted = true;
           onInteractRef.current();
         }
-        requestRender();
         settle();
         return;
       }
@@ -827,11 +864,10 @@ export default function Globe({
     function onWheel(e: WheelEvent) {
       e.preventDefault();
       const v = view.current;
-      v.zoom = clamp(v.zoom * Math.exp(-e.deltaY * 0.0015), MIN_ZOOM, maxZoom.current);
+      const target = clamp(v.zoom * Math.exp(-e.deltaY * 0.0015), MIN_ZOOM, maxZoom.current);
+      zoomAt(e.clientX, e.clientY, target);
       lastInteraction.current = performance.now();
-      lastRotate.current = performance.now();
       onInteractRef.current();
-      requestRender();
       settle();
     }
 

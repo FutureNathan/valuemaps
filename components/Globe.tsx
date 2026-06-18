@@ -111,8 +111,14 @@ export default function Globe({
     width: 0,
     height: 0,
     dpr: 1,
-    stars: [] as { x: number; y: number; r: number; a: number; bright: boolean }[],
   });
+
+  // Celestial sphere: stars + a faint Milky Way, fixed in sky coordinates and
+  // projected with the globe's rotation so they sweep past as you spin it.
+  const sky = useRef<{
+    stars: { lon: number; sinLat: number; cosLat: number; r: number; a: number; bright: boolean }[];
+    haze: { lon: number; sinLat: number; cosLat: number; r: number; a: number }[];
+  } | null>(null);
 
   const propsRef = useRef({ features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc, tileUrl, overlay, hideData });
   propsRef.current = { features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc, tileUrl, overlay, hideData };
@@ -150,6 +156,67 @@ export default function Globe({
       .scale(v.baseScale * v.zoom)
       .rotate(v.rotation)
       .clipAngle(90);
+  }
+
+  // Build the celestial sphere once: a uniform sprinkling of stars plus a denser,
+  // tilted band of stars and soft haze blobs that read as the Milky Way.
+  // Deterministic, and stored as precomputed trig (lonRad, sinLat, cosLat) so
+  // the per-frame orthographic projection is cheap.
+  function buildSky() {
+    let s = 1234567;
+    const rnd = () => ((s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    // Tilt the band off the equator so it crosses the view diagonally.
+    const tilt = (61 * Math.PI) / 180;
+    const ct = Math.cos(tilt);
+    const stt = Math.sin(tilt);
+    // Place a point near the equator then tilt the whole band; return rad/sin/cos.
+    const place = (lonDeg: number, latDeg: number) => {
+      const lo = (lonDeg * Math.PI) / 180;
+      const la = (latDeg * Math.PI) / 180;
+      const cl = Math.cos(la);
+      const x = cl * Math.cos(lo);
+      let y = cl * Math.sin(lo);
+      let z = Math.sin(la);
+      const y2 = y * ct - z * stt;
+      const z2 = y * stt + z * ct;
+      const latR = Math.asin(Math.max(-1, Math.min(1, z2)));
+      return { lon: Math.atan2(y2, x), sinLat: Math.sin(latR), cosLat: Math.cos(latR) };
+    };
+    const gauss = () => rnd() + rnd() + rnd() - 1.5; // ~N(0, .5)
+
+    const stars: { lon: number; sinLat: number; cosLat: number; r: number; a: number; bright: boolean }[] = [];
+    // Uniform field across the whole sky.
+    for (let i = 0; i < 2200; i++) {
+      const lonR = (rnd() * 360 - 180) * (Math.PI / 180);
+      const latR = Math.asin(rnd() * 2 - 1); // uniform on sphere
+      const bright = rnd() > 0.972;
+      stars.push({
+        lon: lonR,
+        sinLat: Math.sin(latR),
+        cosLat: Math.cos(latR),
+        r: bright ? rnd() * 0.8 + 0.9 : rnd() * 0.7 + 0.3,
+        a: bright ? rnd() * 0.3 + 0.6 : rnd() * 0.4 + 0.15,
+        bright,
+      });
+    }
+    // Denser river of stars along the (tilted) galactic band.
+    for (let i = 0; i < 1500; i++) {
+      const pos = place(rnd() * 360 - 180, gauss() * 11);
+      const bright = rnd() > 0.985;
+      stars.push({
+        ...pos,
+        r: bright ? rnd() * 0.7 + 0.8 : rnd() * 0.6 + 0.3,
+        a: bright ? rnd() * 0.3 + 0.5 : rnd() * 0.35 + 0.14,
+        bright,
+      });
+    }
+    // Soft haze blobs giving the band its milky glow.
+    const haze: { lon: number; sinLat: number; cosLat: number; r: number; a: number }[] = [];
+    for (let i = 0; i < 54; i++) {
+      const pos = place(rnd() * 360 - 180, gauss() * 7);
+      haze.push({ ...pos, r: rnd() * 60 + 46, a: rnd() * 0.05 + 0.035 });
+    }
+    sky.current = { stars, haze };
   }
 
   // Lazily load the shaded planet image for a background body.
@@ -473,20 +540,62 @@ export default function Globe({
     ctx.fillStyle = space;
     ctx.fillRect(0, 0, w, h);
 
-    // Stars — small, crisp and cool-white, with a faint halo on just a few.
-    for (const s of v.stars) {
-      if (s.bright) {
-        const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r * 3);
-        g.addColorStop(0, `rgba(214,226,245,${s.a * 0.5})`);
+    // Stars + Milky Way on the celestial sphere — orthographically projected
+    // about the same point the globe faces, at a wider "infinity" scale, so they
+    // sweep past as you spin and stay put as you zoom. Back-hemisphere points and
+    // anything behind the globe disc are culled.
+    if (!sky.current) buildSky();
+    const skyData = sky.current!;
+    const S = Math.hypot(w, h) * 0.7;
+    const lambda0 = (-v.rotation[0] * Math.PI) / 180;
+    const phi0 = (-v.rotation[1] * Math.PI) / 180;
+    const sinPhi0 = Math.sin(phi0);
+    const cosPhi0 = Math.cos(phi0);
+    const rr = r * r;
+
+    // Soft Milky Way haze first (under the stars).
+    for (const hz of skyData.haze) {
+      const dl = hz.lon - lambda0;
+      const cosdl = Math.cos(dl);
+      if (sinPhi0 * hz.sinLat + cosPhi0 * hz.cosLat * cosdl <= 0) continue;
+      const px = cx + S * (hz.cosLat * Math.sin(dl));
+      const py = cy - S * (cosPhi0 * hz.sinLat - sinPhi0 * hz.cosLat * cosdl);
+      const dx = px - cx;
+      const dy = py - cy;
+      if (dx * dx + dy * dy < rr) continue;
+      if (px < -130 || px > w + 130 || py < -130 || py > h + 130) continue;
+      const g = ctx.createRadialGradient(px, py, 0, px, py, hz.r);
+      g.addColorStop(0, `rgba(150,168,214,${hz.a})`);
+      g.addColorStop(1, "rgba(150,168,214,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(px, py, hz.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Stars.
+    for (const st of skyData.stars) {
+      const dl = st.lon - lambda0;
+      const cosdl = Math.cos(dl);
+      if (sinPhi0 * st.sinLat + cosPhi0 * st.cosLat * cosdl <= 0) continue; // back side
+      const px = cx + S * (st.cosLat * Math.sin(dl));
+      const py = cy - S * (cosPhi0 * st.sinLat - sinPhi0 * st.cosLat * cosdl);
+      if (px < 0 || px > w || py < 0 || py > h) continue;
+      const dx = px - cx;
+      const dy = py - cy;
+      if (dx * dx + dy * dy < rr) continue; // behind the globe
+      if (st.bright) {
+        const g = ctx.createRadialGradient(px, py, 0, px, py, st.r * 3);
+        g.addColorStop(0, `rgba(214,226,245,${st.a * 0.5})`);
         g.addColorStop(1, "rgba(214,226,245,0)");
         ctx.fillStyle = g;
         ctx.beginPath();
-        ctx.arc(s.x, s.y, s.r * 3, 0, Math.PI * 2);
+        ctx.arc(px, py, st.r * 3, 0, Math.PI * 2);
         ctx.fill();
       }
-      ctx.globalAlpha = s.a;
+      ctx.globalAlpha = st.a;
       ctx.beginPath();
-      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.arc(px, py, st.r, 0, Math.PI * 2);
       ctx.fillStyle = "#e8eefb";
       ctx.fill();
     }
@@ -909,22 +1018,6 @@ export default function Globe({
       canvas!.height = Math.floor(h * dpr);
       canvas!.style.width = w + "px";
       canvas!.style.height = h + "px";
-
-      const count = Math.round((w * h) / 2400);
-      const stars = [];
-      let s = 9301;
-      const rnd = () => ((s = (s * 233280 + 49297) % 233280) / 233280);
-      for (let i = 0; i < count; i++) {
-        const bright = rnd() > 0.965;
-        stars.push({
-          x: rnd() * w,
-          y: rnd() * h,
-          r: bright ? rnd() * 0.7 + 0.85 : rnd() * 0.7 + 0.3,
-          a: bright ? rnd() * 0.25 + 0.6 : rnd() * 0.4 + 0.16,
-          bright,
-        });
-      }
-      v.stars = stars;
       requestRender();
     }
 

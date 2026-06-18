@@ -376,7 +376,6 @@ export default function App() {
 
   const selName = selectedId ? namesRef.current.get(selectedId) ?? null : null;
   const selectedAgg = selectedId ? realFor(selectedId) : undefined;
-  const selValue = selectedId ? valueFor(selectedId, metricId) : null;
   const loading = features.length === 0;
 
   return (
@@ -403,9 +402,24 @@ export default function App() {
       </div>
 
       {collapsed && (
-        <button className="sidebar-open-btn" onClick={() => setCollapsed(false)} aria-label="Open menu">
-          <Peek name={selName} value={selValue} source={source} metric={metric} lang={lang} />
-          <span className="reopen-caret">›</span>
+        <button
+          className="sidebar-open-btn"
+          onClick={() => setCollapsed(false)}
+          aria-label={t("openMenu")}
+        >
+          <MiniStats
+            name={selName}
+            regionId={selectedId}
+            source={source}
+            metric={metric}
+            referenceData={referenceData}
+            agg={selectedAgg}
+            lang={lang}
+            limit={5}
+          />
+          <span className="reopen-caret" aria-hidden="true">
+            <ExpandIcon />
+          </span>
         </button>
       )}
 
@@ -420,7 +434,16 @@ export default function App() {
               <p>{tWorldTag(lang, world.id, world.tagline)}</p>
             </div>
             <div className="mini-head">
-              <Peek name={selName} value={selValue} source={source} metric={metric} lang={lang} />
+              <MiniStats
+                name={selName}
+                regionId={selectedId}
+                source={source}
+                metric={metric}
+                referenceData={referenceData}
+                agg={selectedAgg}
+                lang={lang}
+                limit={3}
+              />
             </div>
           </div>
           <button
@@ -539,7 +562,7 @@ export default function App() {
               aria-expanded={optionsOpen}
             >
               <span>{t("options")}</span>
-              <span className="disclosure-caret">{optionsOpen ? "▾" : "▸"}</span>
+              <ChevronIcon />
             </button>
             {optionsOpen && (
               <div className="options">
@@ -590,6 +613,39 @@ export default function App() {
               </div>
             )}
           </section>
+
+          <section className="block">
+            <div className="about-card">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img className="astronaut" src="/astronaut.png" alt="" aria-hidden="true" />
+              <div className="about-text">
+                <span className="about-eyebrow">{t("aboutEyebrow")}</span>
+                <h3>Value Maps</h3>
+                <p>{t("aboutBody")}</p>
+                <p className="about-made">
+                  {t("aboutMadePre")} <span className="about-heart">♥</span> {t("aboutMadePost")}
+                </p>
+                <div className="about-links">
+                  <a
+                    className="about-link"
+                    href="https://github.com/FutureNathan/valuemaps"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {t("aboutGithub")} <span className="about-arrow">→</span>
+                  </a>
+                  <a
+                    className="about-link"
+                    href="https://www.nathantowianski.com/index.html"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {t("aboutSite")} <span className="about-arrow">→</span>
+                  </a>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
       </aside>
 
@@ -607,40 +663,157 @@ export default function App() {
   );
 }
 
-// Compact summary shown when the menu is closed/collapsed: the selected place +
-// its value if one is selected, otherwise what the map is currently showing.
-function Peek({
+// Accordion chevron for the "Options & data source" disclosure — rotates when open.
+function ChevronIcon() {
+  return (
+    <svg
+      className="chevron"
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M4 6l4 4 4-4"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// "Expand" affordance on the collapsed mini-card.
+function ExpandIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M6 4l4 4-4 4"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// Compact stats shown when the menu is collapsed (desktop) or peeking (mobile).
+// With a place selected it shows that place's actual stats — the community's top
+// wants, or the reference dataset's metrics — instead of a single value. With no
+// selection it falls back to the legend for what the map is currently showing.
+function MiniStats({
   name,
-  value,
+  regionId,
   source,
   metric,
+  referenceData,
+  agg,
   lang,
+  limit = 4,
 }: {
   name: string | null;
-  value: number | null;
+  regionId: string | null;
   source: DataSource;
   metric: Metric;
+  referenceData: ReferenceData;
+  agg: Aggregate | undefined;
   lang: Lang;
+  limit?: number;
 }) {
-  return (
-    <div className="mini-legend">
-      <div className="mini-legend-title">
-        {name ?? `${tSource(lang, source)} · ${tMetric(lang, source, metric)}`}
+  // Nothing selected — show what the map is currently displaying.
+  if (!name || !regionId) {
+    return (
+      <div className="mini-legend">
+        <div className="mini-legend-title">
+          {`${tSource(lang, source)} · ${tMetric(lang, source, metric)}`}
+        </div>
+        <div className="legend-bar" style={{ background: legendGradient(metric) }} />
+        <div className="legend-ends">
+          <span>{tMetricLow(lang, source, metric)}</span>
+          <span>{tMetricHigh(lang, source, metric)}</span>
+        </div>
       </div>
-      <div className="legend-bar" style={{ background: legendGradient(metric) }} />
-      <div className="legend-ends">
-        {name ? (
-          <>
-            <span>{tMetric(lang, source, metric)}</span>
-            <span className="metric-val">{value != null ? formatValue(metric, value) : "—"}</span>
-          </>
+    );
+  }
+
+  // Community — the place's top wants.
+  if (source.kind === "community") {
+    const count = agg?.count ?? 0;
+    const wants = topWants(agg, limit);
+    return (
+      <div className="mini-stats">
+        <div className="mini-stats-head">
+          <span className="mini-stats-title">{name}</span>
+          {count > 0 && (
+            <span className="mini-tag">
+              {count} {count === 1 ? tUI(lang, "voice") : tUI(lang, "voices")}
+            </span>
+          )}
+        </div>
+        {count > 0 ? (
+          <div className="mini-rows">
+            {wants.map((w) => {
+              const def = WANT_BY_ID[w.id];
+              return (
+                <div className="mini-row" key={w.id}>
+                  <span className="mini-row-label">{tWantLong(lang, w.id, def?.label ?? w.id)}</span>
+                  <span className="mini-row-val">{Math.round(w.share)}%</span>
+                  <span className="mini-bar">
+                    <span
+                      className="mini-bar-fill"
+                      style={{ width: `${w.share}%`, background: def?.color ?? "#888" }}
+                    />
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         ) : (
-          <>
-            <span>{tMetricLow(lang, source, metric)}</span>
-            <span>{tMetricHigh(lang, source, metric)}</span>
-          </>
+          <div className="mini-empty">{tUI(lang, "noResponses")}</div>
         )}
       </div>
+    );
+  }
+
+  // Reference — the place's stats across this source's metrics.
+  const row = referenceData[source.id]?.[regionId];
+  const hasAny = row && Object.keys(row).length > 0;
+  return (
+    <div className="mini-stats">
+      <div className="mini-stats-head">
+        <span className="mini-stats-title">{name}</span>
+        <span className="mini-tag mini-tag-ref">{tSource(lang, source)}</span>
+      </div>
+      {hasAny ? (
+        <div className="mini-rows">
+          {source.metrics.slice(0, limit).map((m) => {
+            const v = row?.[m.id];
+            const has = typeof v === "number";
+            return (
+              <div className={`mini-row ${m.id === metric.id ? "on" : ""}`} key={m.id}>
+                <span className="mini-row-label">{tMetric(lang, source, m)}</span>
+                <span className="mini-row-val">{has ? formatValue(m, v as number) : "—"}</span>
+                <span className="mini-bar">
+                  {has && (
+                    <span
+                      className="mini-bar-fill"
+                      style={{
+                        width: `${normalizedPosition(m, v as number) * 100}%`,
+                        background: metricColor(m, v as number),
+                      }}
+                    />
+                  )}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="mini-empty">{tUI(lang, "noData")}</div>
+      )}
     </div>
   );
 }

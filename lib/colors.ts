@@ -20,8 +20,8 @@ function mix(c1: string, c2: string, t: number): string {
   )}`;
 }
 
-// Desaturated slate for "balanced" regions (the center of every axis).
-export const NEUTRAL_HEX = "#5b6b82";
+// Desaturated neutral for "balanced" regions (the center of every axis).
+export const NEUTRAL_HEX = "#54545c";
 const NEUTRAL = NEUTRAL_HEX;
 
 /**
@@ -66,4 +66,4 @@ export function sequentialColor(
 }
 
 /** Fill for regions we have no data for. */
-export const NO_DATA_COLOR = "#283142";
+export const NO_DATA_COLOR = "#25252b";

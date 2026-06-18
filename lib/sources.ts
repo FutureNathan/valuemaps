@@ -45,7 +45,7 @@ const communityMetrics: Metric[] = WANTS.map((w) => ({
   high: "Most",
   domain: [0, 100],
   scale: "sequential",
-  lowColor: "#33405a",
+  lowColor: "#33333a",
   highColor: w.color,
   decimals: 0,
   unit: "%",

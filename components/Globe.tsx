@@ -106,6 +106,7 @@ export default function Globe({
   const gesture = useRef({ moved: 0, downAt: 0, lastX: 0, lastY: 0, pinchDist: 0, interacted: false });
   const bodiesRef = useRef<{ id: string; cx: number; cy: number; r: number }[]>([]);
   const bodyImgs = useRef<Map<string, HTMLImageElement>>(new Map());
+  const shooting = useRef<{ x0: number; y0: number; dx: number; dy: number; born: number; dur: number; len: number }[]>([]);
   const texPixels = useRef<{ data: Uint8ClampedArray; w: number; h: number } | null>(null);
   const texCanvas = useRef<HTMLCanvasElement | null>(null);
   const lastTexKey = useRef("");
@@ -136,6 +137,26 @@ export default function Globe({
       bodyImgs.current.set(id, img);
     }
     return img;
+  }
+
+  // Occasionally streak a faint shooting star across the deep-space backdrop,
+  // matching the look of nathantowianski.com.
+  function spawnShoot() {
+    const v = view.current;
+    if (!v.width || !v.height) return;
+    const fromLeft = Math.random() < 0.5;
+    const dist = Math.min(v.width, v.height) * (0.5 + Math.random() * 0.4);
+    const theta = ((20 + Math.random() * 26) * Math.PI) / 180; // angle below horizontal
+    shooting.current.push({
+      x0: fromLeft ? Math.random() * v.width * 0.4 : v.width * (0.6 + Math.random() * 0.4),
+      y0: Math.random() * v.height * 0.45,
+      dx: (fromLeft ? 1 : -1) * dist * Math.cos(theta),
+      dy: dist * Math.sin(theta),
+      born: performance.now(),
+      dur: 700 + Math.random() * 600,
+      len: 64 + Math.random() * 90,
+    });
+    requestRender();
   }
 
   // Project the equirectangular texture onto the sphere for the current view,
@@ -275,7 +296,7 @@ export default function Globe({
 
     // Deep-space backdrop (near-black, subtle center lift).
     const space = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w, h) * 0.75);
-    space.addColorStop(0, "#05070d");
+    space.addColorStop(0, "#0a0809");
     space.addColorStop(1, "#000000");
     ctx.fillStyle = space;
     ctx.fillRect(0, 0, w, h);
@@ -284,8 +305,8 @@ export default function Globe({
     for (const s of v.stars) {
       if (s.bright) {
         const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r * 4);
-        g.addColorStop(0, `rgba(226,236,255,${s.a})`);
-        g.addColorStop(1, "rgba(226,236,255,0)");
+        g.addColorStop(0, `rgba(255,243,233,${s.a})`);
+        g.addColorStop(1, "rgba(255,243,233,0)");
         ctx.fillStyle = g;
         ctx.beginPath();
         ctx.arc(s.x, s.y, s.r * 4, 0, Math.PI * 2);
@@ -294,10 +315,42 @@ export default function Globe({
       ctx.globalAlpha = s.a;
       ctx.beginPath();
       ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-      ctx.fillStyle = "#eaf1ff";
+      ctx.fillStyle = "#f5efe8";
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+
+    // Shooting stars — a white head trailing into the brand orange.
+    if (shooting.current.length) {
+      const now = performance.now();
+      for (const sh of shooting.current) {
+        const t = (now - sh.born) / sh.dur;
+        if (t < 0 || t > 1) continue;
+        const hx = sh.x0 + sh.dx * t;
+        const hy = sh.y0 + sh.dy * t;
+        const ang = Math.atan2(sh.dy, sh.dx);
+        const tx = hx - Math.cos(ang) * sh.len;
+        const ty = hy - Math.sin(ang) * sh.len;
+        const a = Math.sin(t * Math.PI) * 0.9; // fade in then out
+        const grad = ctx.createLinearGradient(tx, ty, hx, hy);
+        grad.addColorStop(0, "rgba(255,80,38,0)");
+        grad.addColorStop(0.65, `rgba(255,140,96,${a * 0.5})`);
+        grad.addColorStop(1, `rgba(255,244,236,${a})`);
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 1.6;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(tx, ty);
+        ctx.lineTo(hx, hy);
+        ctx.stroke();
+        ctx.globalAlpha = a;
+        ctx.beginPath();
+        ctx.arc(hx, hy, 1.7, 0, Math.PI * 2);
+        ctx.fillStyle = "#fff6ef";
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
 
     // Faint background worlds you can tap to travel to.
     const bodyR = Math.max(24, Math.min(w, h) * 0.058);
@@ -472,6 +525,14 @@ export default function Globe({
         lastRotate.current = now;
       }
       keepGoing = true;
+    }
+
+    // Keep animating while any shooting star is in flight; one extra frame
+    // clears the last one as it finishes.
+    if (shooting.current.length) {
+      shooting.current = shooting.current.filter((s) => now - s.born <= s.dur + 20);
+      needDraw = true;
+      if (shooting.current.length) keepGoing = true;
     }
 
     if (needDraw) draw();
@@ -706,6 +767,22 @@ export default function Globe({
       schedule();
     }
   }, [autoRotate]);
+
+  // Occasional shooting stars (disabled when the visitor prefers reduced motion).
+  useEffect(() => {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
+    const tick = setInterval(() => {
+      if (!document.hidden && Math.random() < 0.4) spawnShoot();
+    }, 2600);
+    const intro = setTimeout(() => {
+      if (!document.hidden) spawnShoot();
+    }, 1600);
+    return () => {
+      clearInterval(tick);
+      clearTimeout(intro);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!focusTarget) return;

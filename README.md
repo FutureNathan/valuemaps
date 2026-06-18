@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/astronaut.png" alt="Value Maps" width="120" />
+</p>
+
 # Value Maps 🌍🌑🔴
 
 ![Value Maps](app/opengraph-image.jpg)

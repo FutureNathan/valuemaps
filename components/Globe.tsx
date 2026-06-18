@@ -376,8 +376,11 @@ export default function Globe({
     let tyMin = 0;
     let gw = 0;
     let gh = 0;
-    if (smooth && template) {
-      const rdev = r * q;
+    if (template) {
+      // Pick the tile level from the *settled* scale (independent of the cheap
+      // low-res pass used while dragging) so already-loaded tiles keep matching
+      // and stay on screen during an orbit — only unseen areas fall back.
+      const rdev = r * Math.min(v.dpr, 2);
       const naturalTz = Math.max(
         0,
         Math.min(TILE_Z_MAX, Math.round(Math.log2((2 * Math.PI * rdev) / TILE_SIZE)))
@@ -440,7 +443,10 @@ export default function Globe({
                 const ent = tileCache.current.get(key);
                 if (ent && ent.state === "ok" && ent.data) {
                   grid[(ty - tyMin) * gw + (tx - txMin)] = ent.data;
-                } else if (!ent) {
+                } else if (!ent && !moving) {
+                  // While dragging we only reuse already-loaded tiles; new tiles
+                  // are requested once the orbit settles (avoids request spam and
+                  // the whole globe flashing back to the base texture).
                   fetchTile(template, tz, wx, ty, key);
                 }
               }

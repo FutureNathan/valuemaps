@@ -502,8 +502,10 @@ export default function App() {
         </button>
       )}
 
-      {sidebarOpen && <div className="scrim" onClick={() => setSidebarOpen(false)} />}
+      {sidebarOpen && !hideData && <div className="scrim" onClick={() => setSidebarOpen(false)} />}
 
+      {/* The menu only exists in data mode — "beautiful home" is a clean, full-screen Earth. */}
+      {!hideData && (
       <aside className={`sidebar ${sidebarOpen ? "open" : ""} ${collapsed ? "collapsed" : ""}`}>
         <div className="sidebar-head" onPointerDown={onHeadPointerDown} onPointerUp={onHeadPointerUp}>
           <span className="grab" />
@@ -733,6 +735,7 @@ export default function App() {
           </section>
         </div>
       </aside>
+      )}
 
       <ValueForm
         open={formOpen}

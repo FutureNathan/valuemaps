@@ -583,12 +583,12 @@ export default function Globe({
     const projection = makeProjection();
     const path = geoPath(projection, ctx);
 
-    // Atmosphere — a thin, subtle halo (kept understated, not a heavy glow).
-    const glow = ctx.createRadialGradient(cx, cy, r * 0.97, cx, cy, r * 1.11);
-    glow.addColorStop(0, `rgba(${p.style.atmosphere},0.14)`);
+    // Atmosphere — a whisper-thin halo, intentionally very faint.
+    const glow = ctx.createRadialGradient(cx, cy, r * 0.98, cx, cy, r * 1.08);
+    glow.addColorStop(0, `rgba(${p.style.atmosphere},0.06)`);
     glow.addColorStop(1, `rgba(${p.style.atmosphere},0)`);
     ctx.beginPath();
-    ctx.arc(cx, cy, r * 1.11, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r * 1.08, 0, Math.PI * 2);
     ctx.fillStyle = glow;
     ctx.fill();
 
@@ -664,7 +664,7 @@ export default function Globe({
 
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(${p.style.atmosphere},0.22)`;
+    ctx.strokeStyle = `rgba(${p.style.atmosphere},0.10)`;
     ctx.lineWidth = 1;
     ctx.stroke();
 

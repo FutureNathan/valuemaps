@@ -131,12 +131,12 @@ async function ogImage() {
       <stop offset="0%" stop-color="#0a0d14"/><stop offset="55%" stop-color="#04060a"/><stop offset="100%" stop-color="#000000"/>
     </radialGradient>
     <radialGradient id="atmo" cx="50%" cy="50%" r="50%">
-      <stop offset="84%" stop-color="rgba(150,190,240,0)"/><stop offset="93%" stop-color="rgba(150,190,240,0.30)"/><stop offset="97%" stop-color="rgba(120,165,225,0.10)"/><stop offset="100%" stop-color="rgba(120,165,225,0)"/>
+      <stop offset="88%" stop-color="rgba(150,190,240,0)"/><stop offset="95%" stop-color="rgba(150,190,240,0.13)"/><stop offset="98%" stop-color="rgba(120,165,225,0.05)"/><stop offset="100%" stop-color="rgba(120,165,225,0)"/>
     </radialGradient>
   </defs>
   <rect width="${W}" height="${H}" fill="url(#space)"/>
   ${stars(W, H, 150, 7)}
-  <circle cx="${cx}" cy="${cy}" r="${(dia / 2) * 1.16}" fill="url(#atmo)"/>
+  <circle cx="${cx}" cy="${cy}" r="${(dia / 2) * 1.12}" fill="url(#atmo)"/>
   <text x="84" y="292" font-family="${FONT}" font-weight="bold" font-size="74" letter-spacing="2" fill="#ffffff">Value Maps</text>
   <text x="88" y="344" font-family="${FONT}" font-size="29" fill="#cdd5e3">Visualizing the world's values.</text>
 </svg>`;

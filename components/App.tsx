@@ -50,7 +50,10 @@ type Country = Feature<Geometry, GeoJsonProperties>;
 type ReferenceData = Record<string, Record<string, Record<string, number>>>;
 type EarthGeo = { features: Country[]; borders: Geometry; names: Map<string, string>; centroids: Map<string, [number, number]> };
 const STORAGE_KEY = "valuemaps:v2";
-const BUILD = "2026-06-18.1";
+const BUILD = process.env.NEXT_PUBLIC_BUILD || "dev";
+// Esri World Imagery — free, CORS-enabled satellite tiles for deep zoom on Earth.
+const EARTH_TILES =
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 
 interface LocalState {
   submission: Submission;
@@ -396,6 +399,7 @@ export default function App() {
           onInteract={handleInteract}
           initialRotation={world.initialRotation}
           textureSrc={satellite ? `/tex-${worldId}.jpg` : null}
+          tileUrl={satellite && worldId === "earth" ? EARTH_TILES : null}
           overlay={overlay}
         />
         {loading && <div className="loading">Loading {world.name}…</div>}
@@ -601,6 +605,16 @@ export default function App() {
                     {source.year ? ` · ${source.year}` : ""} ↗
                   </a>
                 )}
+                {satellite && worldId === "earth" && (
+                  <a
+                    className="source-credit"
+                    href="https://www.esri.com/en-us/legal/terms/data-attributions"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {t("imagery")} Esri, Maxar, Earthstar Geographics ↗
+                  </a>
+                )}
                 <div className="foot">
                   <span className={`dot ${storageLive ? "dot-live" : "dot-demo"}`} />
                   {storageLive
@@ -626,21 +640,20 @@ export default function App() {
               {t("aboutCta")}
             </a>
             <p className="about-desc">{t("aboutDesc")}</p>
-            <p className="about-made">
-              {t("aboutMadePre")}{" "}
-              <span className="about-heart" aria-hidden="true">♥</span> {t("aboutBy")}{" "}
-              <a
-                className="about-name"
-                href="https://www.nathantowianski.com/index.html"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Nathan
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img className="about-astro" src="/astronaut.png" alt="" aria-hidden="true" />
-                <span className="about-ext" aria-hidden="true">↗</span>
-              </a>
-            </p>
+            <a
+              className="about-made"
+              href="https://www.nathantowianski.com/index.html"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span className="about-made-text">
+                {t("aboutMadePre")}{" "}
+                <span className="about-heart" aria-hidden="true">♥</span> {t("aboutBy")} Nathan
+              </span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img className="about-astro" src="/astronaut.png" alt="" aria-hidden="true" />
+              <span className="about-ext" aria-hidden="true">↗</span>
+            </a>
             <div className="about-build">build {BUILD}</div>
           </section>
         </div>

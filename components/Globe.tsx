@@ -45,13 +45,29 @@ interface GlobeProps {
   onInteract: () => void;
   initialRotation: [number, number, number];
   textureSrc: string | null;
+  tileUrl: string | null;
   overlay: number;
 }
 
 const MIN_ZOOM = 0.85;
-const MAX_ZOOM = 7;
+// Without working map tiles we cap zoom where the base texture still holds up;
+// once tiles start loading we open it right up for Google-Earth-style depth.
+const MAX_ZOOM_BASE = 12;
+const MAX_ZOOM_TILES = 8000;
 const SPIN_SPEED = 0.1;
 const IDLE_MS = 3000;
+
+// Web-Mercator slippy-map tiles (256px). Standard formulas.
+const TILE_SIZE = 256;
+const TILE_Z_MAX = 17; // deepest tile level we'll request
+const MAX_TILES_PER_FRAME = 180; // guard against the limb spanning the whole map
+
+function lonLatToMercator(lonDeg: number, latDeg: number): [number, number] {
+  const x = (lonDeg + 180) / 360;
+  const lat = (latDeg * Math.PI) / 180;
+  const y = 0.5 - Math.asinh(Math.tan(lat)) / (2 * Math.PI);
+  return [x, y]; // normalized [0,1)
+}
 
 function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
@@ -80,6 +96,7 @@ export default function Globe({
   onInteract,
   initialRotation,
   textureSrc,
+  tileUrl,
   overlay,
 }: GlobeProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -95,8 +112,13 @@ export default function Globe({
     stars: [] as { x: number; y: number; r: number; a: number; bright: boolean }[],
   });
 
-  const propsRef = useRef({ features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc, overlay });
-  propsRef.current = { features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc, overlay };
+  const propsRef = useRef({ features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc, tileUrl, overlay });
+  propsRef.current = { features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc, tileUrl, overlay };
+
+  // Satellite map tiles for deep zoom (Earth). Decoded RGBA kept in an LRU cache.
+  const tileCache = useRef(new Map<string, { data?: Uint8ClampedArray; state: "loading" | "ok" | "err" }>());
+  const maxZoom = useRef(MAX_ZOOM_BASE);
+  const tilesEverLoaded = useRef(false);
 
   const dirty = useRef(true);
   const raf = useRef<number | null>(null);
@@ -160,6 +182,57 @@ export default function Globe({
     requestRender();
   }
 
+  // Keep the satellite-tile cache bounded (oldest-out).
+  function evictTiles() {
+    const c = tileCache.current;
+    const MAX = 200;
+    if (c.size <= MAX) return;
+    let over = c.size - MAX;
+    for (const k of c.keys()) {
+      if (over-- <= 0) break;
+      c.delete(k);
+    }
+  }
+
+  // Fetch + decode one map tile. crossOrigin "anonymous" means a provider
+  // without CORS simply fails to load (we fall back to the base texture) — it
+  // can never taint the main canvas. First success unlocks deep zoom.
+  function fetchTile(template: string, z: number, x: number, y: number, key: string) {
+    const c = tileCache.current;
+    if (c.has(key)) return;
+    c.set(key, { state: "loading" });
+    const url = template
+      .replace("{z}", String(z))
+      .replace("{x}", String(x))
+      .replace("{y}", String(y));
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const cv = document.createElement("canvas");
+        cv.width = TILE_SIZE;
+        cv.height = TILE_SIZE;
+        const cc = cv.getContext("2d", { willReadFrequently: true });
+        if (!cc) {
+          c.set(key, { state: "err" });
+          return;
+        }
+        cc.drawImage(img, 0, 0, TILE_SIZE, TILE_SIZE);
+        const data = cc.getImageData(0, 0, TILE_SIZE, TILE_SIZE).data;
+        c.set(key, { state: "ok", data });
+        tilesEverLoaded.current = true;
+        if (maxZoom.current < MAX_ZOOM_TILES) maxZoom.current = MAX_ZOOM_TILES;
+        evictTiles();
+        lastTexKey.current = ""; // invalidate the cached slice so tiles composite in
+        settle();
+      } catch {
+        c.set(key, { state: "err" });
+      }
+    };
+    img.onerror = () => c.set(key, { state: "err" });
+    img.src = url;
+  }
+
   // Project the equirectangular texture onto the sphere for the current view,
   // using the SAME projection that draws the countries (so they line up).
   // Cached by orientation/zoom; recomputed only when the view changes.
@@ -214,6 +287,76 @@ export default function Globe({
     const td = tex.data;
     const pt: [number, number] = [0, 0];
     const smooth = !moving;
+
+    // --- Satellite map tiles for deep zoom (Earth) ---
+    // Pick the slippy zoom whose tile resolution matches the on-screen scale,
+    // find which tiles the current view touches, gather the loaded ones and
+    // request the rest. Pixels without a loaded tile fall back to the base map.
+    const template = propsRef.current.tileUrl;
+    let grid: (Uint8ClampedArray | undefined)[] | null = null;
+    let ntiles = 0;
+    let txMin = 0;
+    let tyMin = 0;
+    let gw = 0;
+    let gh = 0;
+    if (smooth && template) {
+      const rdev = r * q;
+      let tz = Math.round(Math.log2((2 * Math.PI * rdev) / TILE_SIZE));
+      tz = Math.max(0, Math.min(TILE_Z_MAX, tz));
+      if (tz >= 5) {
+        ntiles = 2 ** tz;
+        let fxMin = Infinity;
+        let fxMax = -Infinity;
+        let fyMin = Infinity;
+        let fyMax = -Infinity;
+        const step = Math.max(1, Math.floor(Math.min(ow, oh) / 40));
+        for (let j = 0; j < oh; j += step) {
+          const sy = ry + ((j + 0.5) / oh) * rh;
+          const dyN = (sy - cy) / r;
+          for (let i = 0; i < ow; i += step) {
+            const sx = rx + ((i + 0.5) / ow) * rw;
+            const dxN = (sx - cx) / r;
+            if (dxN * dxN + dyN * dyN > 1) continue;
+            pt[0] = sx;
+            pt[1] = sy;
+            const ll = invert(pt);
+            if (!ll || Number.isNaN(ll[0])) continue;
+            const m = lonLatToMercator(ll[0], ll[1]);
+            const fx = m[0] * ntiles;
+            const fy = m[1] * ntiles;
+            if (fx < fxMin) fxMin = fx;
+            if (fx > fxMax) fxMax = fx;
+            if (fy < fyMin) fyMin = fy;
+            if (fy > fyMax) fyMax = fy;
+          }
+        }
+        if (fxMax >= fxMin) {
+          txMin = Math.floor(fxMin);
+          tyMin = Math.floor(fyMin);
+          gw = Math.floor(fxMax) - txMin + 1;
+          gh = Math.floor(fyMax) - tyMin + 1;
+          if (gw > 0 && gh > 0 && gw * gh <= MAX_TILES_PER_FRAME) {
+            grid = new Array(gw * gh);
+            for (let ty = tyMin; ty < tyMin + gh; ty++) {
+              if (ty < 0 || ty >= ntiles) continue;
+              for (let tx = txMin; tx < txMin + gw; tx++) {
+                const wx = ((tx % ntiles) + ntiles) % ntiles;
+                const key = `${tz}/${wx}/${ty}`;
+                const ent = tileCache.current.get(key);
+                if (ent && ent.state === "ok" && ent.data) {
+                  grid[(ty - tyMin) * gw + (tx - txMin)] = ent.data;
+                } else if (!ent) {
+                  fetchTile(template, tz, wx, ty, key);
+                }
+              }
+            }
+          } else {
+            grid = null;
+          }
+        }
+      }
+    }
+
     for (let j = 0; j < oh; j++) {
       const sy = ry + ((j + 0.5) / oh) * rh;
       const dyN = (sy - cy) / r;
@@ -234,6 +377,30 @@ export default function Globe({
           continue;
         }
         const shade = 0.62 + 0.38 * Math.sqrt(1 - rho2); // gentle limb darkening
+        if (grid) {
+          const m = lonLatToMercator(ll[0], ll[1]);
+          const fx = m[0] * ntiles;
+          const fy = m[1] * ntiles;
+          const txi = Math.floor(fx);
+          const tyi = Math.floor(fy);
+          const col = txi - txMin;
+          const row = tyi - tyMin;
+          if (col >= 0 && col < gw && row >= 0 && row < gh) {
+            const cell = grid[row * gw + col];
+            if (cell) {
+              let px = ((fx - txi) * TILE_SIZE) | 0;
+              let py = ((fy - tyi) * TILE_SIZE) | 0;
+              if (px > TILE_SIZE - 1) px = TILE_SIZE - 1;
+              if (py > TILE_SIZE - 1) py = TILE_SIZE - 1;
+              const s = (py * TILE_SIZE + px) * 4;
+              out[o] = cell[s] * shade;
+              out[o + 1] = cell[s + 1] * shade;
+              out[o + 2] = cell[s + 2] * shade;
+              out[o + 3] = 255;
+              continue;
+            }
+          }
+        }
         if (smooth) {
           const uf = ((ll[0] + 180) / 360) * tw - 0.5;
           const vf = ((90 - ll[1]) / 180) * th - 0.5;
@@ -453,7 +620,10 @@ export default function Globe({
     }
 
     // Regions / countries, colored by the active metric (translucent over texture).
-    const fillAlpha = tc ? Math.max(0, Math.min(1, p.overlay)) : 1;
+    // Over imagery, fade the data tint out as you zoom in so deep zooms show the
+    // real ground; at normal zoom the value map reads as before.
+    const zoomFade = clamp(1 - (v.zoom - 10) / 12, 0, 1);
+    const fillAlpha = tc ? Math.max(0, Math.min(1, p.overlay)) * zoomFade : 1;
     for (const f of p.features) {
       ctx.beginPath();
       path(f);
@@ -584,7 +754,7 @@ export default function Globe({
 
       if (pointers.current.size >= 2) {
         const d = dist();
-        if (g.pinchDist > 0) v.zoom = clamp(v.zoom * (d / g.pinchDist), MIN_ZOOM, MAX_ZOOM);
+        if (g.pinchDist > 0) v.zoom = clamp(v.zoom * (d / g.pinchDist), MIN_ZOOM, maxZoom.current);
         g.pinchDist = d;
         g.moved += 50;
         if (!g.interacted) {
@@ -657,7 +827,7 @@ export default function Globe({
     function onWheel(e: WheelEvent) {
       e.preventDefault();
       const v = view.current;
-      v.zoom = clamp(v.zoom * Math.exp(-e.deltaY * 0.0015), MIN_ZOOM, MAX_ZOOM);
+      v.zoom = clamp(v.zoom * Math.exp(-e.deltaY * 0.0015), MIN_ZOOM, maxZoom.current);
       lastInteraction.current = performance.now();
       lastRotate.current = performance.now();
       onInteractRef.current();
@@ -730,7 +900,7 @@ export default function Globe({
 
   useEffect(() => {
     requestRender();
-  }, [features, borders, colorForId, selectedId, style, backgroundBodies, textureSrc, overlay]);
+  }, [features, borders, colorForId, selectedId, style, backgroundBodies, textureSrc, tileUrl, overlay]);
 
   // Load the equirectangular texture for "satellite" mode and grab its pixels.
   useEffect(() => {
@@ -814,10 +984,25 @@ export default function Globe({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusTarget?.nonce]);
 
+  // Deep zoom is only unlocked while satellite tiles are in play; otherwise keep
+  // the zoom within the cap the base texture can support.
+  useEffect(() => {
+    if (!tileUrl) {
+      maxZoom.current = MAX_ZOOM_BASE;
+      if (view.current.zoom > MAX_ZOOM_BASE) {
+        view.current.zoom = MAX_ZOOM_BASE;
+        requestRender();
+      }
+    } else if (tilesEverLoaded.current) {
+      maxZoom.current = MAX_ZOOM_TILES;
+    }
+  }, [tileUrl]);
+
   useEffect(() => {
     return () => {
       if (raf.current != null) cancelAnimationFrame(raf.current);
       if (settleTimer.current != null) clearTimeout(settleTimer.current);
+      tileCache.current.clear();
     };
   }, []);
 

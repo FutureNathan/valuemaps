@@ -28,62 +28,123 @@ function stars(w, h, n, seed) {
   return out;
 }
 
-function ogSvg() {
+// Real Earth imagery (Solar System Scope, CC BY 4.0) for the share card globe.
+const EARTH_URL =
+  "https://media.githubusercontent.com/media/computationalcore/worldline-kinematics/bda6e586435fc5956b3a350bde88766a14e3b7b6/apps/web/public/textures/8k_earth_daymap.jpg";
+const D = Math.PI / 180;
+const clampv = (v, a, b) => (v < a ? a : v > b ? b : v);
+
+async function loadMap(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${res.status} ${url}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  const { data, info } = await sharp(buf).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  return { data, w: info.width, h: info.height, ch: info.channels };
+}
+
+function sampleBilinear(map, lon, lat, out) {
+  let u = ((lon + 180) / 360) * map.w;
+  let v = ((90 - lat) / 180) * map.h;
+  u = ((u % map.w) + map.w) % map.w;
+  v = clampv(v, 0, map.h - 1);
+  const u0 = Math.floor(u);
+  const v0 = Math.floor(v);
+  const u1 = (u0 + 1) % map.w;
+  const v1 = Math.min(v0 + 1, map.h - 1);
+  const fu = u - u0;
+  const fv = v - v0;
+  for (let c = 0; c < 3; c++) {
+    const a = map.data[(v0 * map.w + u0) * map.ch + c];
+    const b = map.data[(v0 * map.w + u1) * map.ch + c];
+    const d = map.data[(v1 * map.w + u0) * map.ch + c];
+    const e = map.data[(v1 * map.w + u1) * map.ch + c];
+    out[c] = a * (1 - fu) * (1 - fv) + b * fu * (1 - fv) + d * (1 - fu) * fv + e * fu * fv;
+  }
+}
+
+// Orthographically project the real Earth map to a shaded sphere (supersampled),
+// transparent outside the disc so the atmosphere glow shows around it.
+async function renderEarth(size) {
+  const map = await loadMap(EARTH_URL);
+  const SS = 2;
+  const N = size * SS;
+  const R = N / 2;
+  const lon0 = -42 * D;
+  const lat0 = 20 * D;
+  const sinLat0 = Math.sin(lat0);
+  const cosLat0 = Math.cos(lat0);
+  const L = [-0.42, 0.5, 0.76];
+  const Ll = Math.hypot(...L);
+  const lx = L[0] / Ll;
+  const ly = L[1] / Ll;
+  const lz = L[2] / Ll;
+  const ambient = 0.58;
+  const px = new Uint8ClampedArray(N * N * 4);
+  const rgb = [0, 0, 0];
+  for (let j = 0; j < N; j++) {
+    const Y = (R - j - 0.5) / R;
+    for (let i = 0; i < N; i++) {
+      const x = (i + 0.5 - R) / R;
+      const rho = Math.hypot(x, Y);
+      const o = (j * N + i) * 4;
+      if (rho > 1.002) continue;
+      const c = Math.asin(clampv(rho, 0, 1));
+      const sinc = Math.sin(c);
+      const cosc = Math.cos(c);
+      let lat;
+      let lon;
+      if (rho < 1e-6) {
+        lat = lat0;
+        lon = lon0;
+      } else {
+        lat = Math.asin(clampv(cosc * sinLat0 + (Y * sinc * cosLat0) / rho, -1, 1));
+        lon = lon0 + Math.atan2(x * sinc, rho * cosLat0 * cosc - Y * sinLat0 * sinc);
+      }
+      sampleBilinear(map, ((lon / D + 540) % 360) - 180, lat / D, rgb);
+      const z = Math.sqrt(Math.max(0, 1 - rho * rho));
+      const diff = Math.max(0, x * lx + Y * ly + z * lz);
+      const shade = ambient + (1 - ambient) * diff;
+      const edge = clampv((1 - rho) * R, 0, 1);
+      px[o] = rgb[0] * shade;
+      px[o + 1] = rgb[1] * shade;
+      px[o + 2] = rgb[2] * shade;
+      px[o + 3] = 255 * edge;
+    }
+  }
+  return sharp(Buffer.from(px.buffer), { raw: { width: N, height: N, channels: 4 } })
+    .resize(size, size)
+    .png()
+    .toBuffer();
+}
+
+// Premium share card: a real topographic Earth on a calm starfield, minimal text.
+async function ogImage() {
   const W = 1200;
   const H = 630;
-  const cx = 905;
-  const cy = 312;
-  const r = 250;
-  const grat =
-    [0.34, 0.62, 0.86]
-      .map(
-        (f) =>
-          `<ellipse cx="${cx}" cy="${cy}" rx="${r}" ry="${(r * f).toFixed(
-            1
-          )}" fill="none" stroke="rgba(210,228,250,0.12)" stroke-width="1"/>`
-      )
-      .join("") +
-    [0.34, 0.62, 0.86]
-      .map(
-        (f) =>
-          `<ellipse cx="${cx}" cy="${cy}" rx="${(r * f).toFixed(
-            1
-          )}" ry="${r}" fill="none" stroke="rgba(210,228,250,0.12)" stroke-width="1"/>`
-      )
-      .join("") +
-    `<line x1="${cx - r}" y1="${cy}" x2="${cx + r}" y2="${cy}" stroke="rgba(210,228,250,0.12)"/>`;
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+  const dia = 512;
+  const cx = 922;
+  const cy = 315;
+  const earth = await renderEarth(dia);
+  const bg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <defs>
-    <radialGradient id="space" cx="62%" cy="44%" r="85%">
+    <radialGradient id="space" cx="64%" cy="46%" r="90%">
       <stop offset="0%" stop-color="#0a0d14"/><stop offset="55%" stop-color="#04060a"/><stop offset="100%" stop-color="#000000"/>
     </radialGradient>
-    <radialGradient id="ocean" cx="38%" cy="32%" r="80%">
-      <stop offset="0%" stop-color="#4a93cf"/><stop offset="55%" stop-color="#1d5e9c"/><stop offset="100%" stop-color="#08243f"/>
-    </radialGradient>
     <radialGradient id="atmo" cx="50%" cy="50%" r="50%">
-      <stop offset="86%" stop-color="rgba(200,222,250,0)"/><stop offset="96%" stop-color="rgba(200,222,250,0.35)"/><stop offset="100%" stop-color="rgba(200,222,250,0)"/>
+      <stop offset="84%" stop-color="rgba(150,190,240,0)"/><stop offset="93%" stop-color="rgba(150,190,240,0.30)"/><stop offset="97%" stop-color="rgba(120,165,225,0.10)"/><stop offset="100%" stop-color="rgba(120,165,225,0)"/>
     </radialGradient>
-    <radialGradient id="spec" cx="34%" cy="28%" r="42%">
-      <stop offset="0%" stop-color="rgba(255,255,255,0.4)"/><stop offset="100%" stop-color="rgba(255,255,255,0)"/>
-    </radialGradient>
-    <radialGradient id="moon" cx="38%" cy="34%" r="78%"><stop offset="0%" stop-color="#b6bbc5"/><stop offset="100%" stop-color="#3a3d44"/></radialGradient>
-    <radialGradient id="mars" cx="38%" cy="34%" r="78%"><stop offset="0%" stop-color="#d2764f"/><stop offset="100%" stop-color="#4e2418"/></radialGradient>
-    <clipPath id="globe"><circle cx="${cx}" cy="${cy}" r="${r}"/></clipPath>
   </defs>
   <rect width="${W}" height="${H}" fill="url(#space)"/>
   ${stars(W, H, 150, 7)}
-  <circle cx="1120" cy="120" r="19" fill="url(#moon)" opacity="0.85"/>
-  <circle cx="1150" cy="190" r="11" fill="url(#mars)" opacity="0.85"/>
-  <circle cx="${cx}" cy="${cy}" r="${(r * 1.12).toFixed(1)}" fill="url(#atmo)"/>
-  <circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#ocean)"/>
-  <g clip-path="url(#globe)">${grat}<circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#spec)"/></g>
-  <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(200,222,250,0.4)" stroke-width="1.25"/>
-  <text x="82" y="206" font-family="${FONT}" font-size="20" letter-spacing="6" fill="#8b96ad">EARTH · MOON · MARS</text>
-  <text x="78" y="300" font-family="${FONT}" font-weight="bold" font-size="80" letter-spacing="4" fill="#ffffff">VALUE MAPS</text>
-  <text x="82" y="352" font-family="${FONT}" font-size="31" fill="#d5dae3">What the world actually wants.</text>
-  <text x="82" y="394" font-family="${FONT}" font-size="22" fill="#8b8890">No left–right boxes — pick every hope you hold.</text>
+  <circle cx="${cx}" cy="${cy}" r="${(dia / 2) * 1.16}" fill="url(#atmo)"/>
+  <text x="84" y="292" font-family="${FONT}" font-weight="bold" font-size="74" letter-spacing="2" fill="#ffffff">Value Maps</text>
+  <text x="88" y="344" font-family="${FONT}" font-size="29" fill="#cdd5e3">Visualizing the world's values.</text>
 </svg>`;
+  const left = Math.round(cx - dia / 2);
+  const top = Math.round(cy - dia / 2);
+  return sharp(Buffer.from(bg))
+    .composite([{ input: earth, left, top }])
+    .jpeg({ quality: 88, mozjpeg: true });
 }
 
 function starSvg(size, withBg) {
@@ -117,8 +178,10 @@ async function render(svg, w, h, out) {
 async function main() {
   console.log("Building social images…");
   // JPEG for the share card keeps it small enough for every chat app's preview.
-  await render(ogSvg(), 1200, 630, "opengraph-image.jpg");
-  await render(ogSvg(), 1200, 630, "twitter-image.jpg");
+  const og = await ogImage();
+  await og.clone().toFile(join(APP, "opengraph-image.jpg"));
+  await og.clone().toFile(join(APP, "twitter-image.jpg"));
+  console.log("  wrote app/opengraph-image.jpg + twitter-image.jpg (1200x630)");
   await render(starSvg(180, true), 180, 180, "apple-icon.png");
   await render(starSvg(48, false), 48, 48, "icon.png");
 }

@@ -440,7 +440,7 @@ export default function App() {
           className={`earth-toggle ${hideData ? "on" : ""}`}
           onClick={() => setHideData((v) => !v)}
         >
-          <span className="earth-toggle-dot" aria-hidden="true" />
+          <GlobeIcon />
           {hideData ? t("showData") : t("beautifulHome")}
         </button>
       </div>
@@ -746,6 +746,24 @@ function ExpandIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+
+// Globe glyph for the "beautiful home" toggle.
+function GlobeIcon() {
+  return (
+    <svg
+      className="earth-toggle-icon"
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="8" r="6.4" stroke="currentColor" strokeWidth="1.3" />
+      <ellipse cx="8" cy="8" rx="2.7" ry="6.4" stroke="currentColor" strokeWidth="1.3" />
+      <line x1="1.6" y1="8" x2="14.4" y2="8" stroke="currentColor" strokeWidth="1.3" />
     </svg>
   );
 }

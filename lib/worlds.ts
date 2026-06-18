@@ -92,9 +92,9 @@ export const WORLDS: World[] = [
     hasReference: true,
     defaultSource: "happiness",
     style: {
-      sphereInner: "#11212f",
-      sphereOuter: "#04070b",
-      atmosphere: "255,118,68",
+      sphereInner: "#3a82c0",
+      sphereOuter: "#0a2440",
+      atmosphere: "186,210,240",
       graticule: true,
       outlineFeatures: false,
     },

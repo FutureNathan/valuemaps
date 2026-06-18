@@ -50,6 +50,7 @@ type Country = Feature<Geometry, GeoJsonProperties>;
 type ReferenceData = Record<string, Record<string, Record<string, number>>>;
 type EarthGeo = { features: Country[]; borders: Geometry; names: Map<string, string>; centroids: Map<string, [number, number]> };
 const STORAGE_KEY = "valuemaps:v2";
+const BUILD = "2026-06-18.1";
 
 interface LocalState {
   submission: Submission;
@@ -250,11 +251,10 @@ export default function App() {
 
   const handleSelect = useCallback((id: string | null) => {
     setSelectedId(id);
-    if (!id) {
-      // Tapping empty space = clicking off the menu: tuck it away.
-      setCollapsed(true);
-      setSidebarOpen(false);
-    }
+    // Tapping the globe is "tapping off the menu": tuck the menu to the side.
+    // The minimized card keeps showing the selected place's stats.
+    setCollapsed(true);
+    setSidebarOpen(false);
   }, []);
 
   // Interacting with the globe (drag / zoom) minimizes the menu so the map is
@@ -614,37 +614,34 @@ export default function App() {
             )}
           </section>
 
-          <section className="block">
-            <div className="about-card">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img className="astronaut" src="/astronaut.png" alt="" aria-hidden="true" />
-              <div className="about-text">
-                <span className="about-eyebrow">{t("aboutEyebrow")}</span>
-                <h3>Value Maps</h3>
-                <p>{t("aboutBody")}</p>
-                <p className="about-made">
-                  {t("aboutMadePre")} <span className="about-heart">♥</span> {t("aboutMadePost")}
-                </p>
-                <div className="about-links">
-                  <a
-                    className="about-link"
-                    href="https://github.com/FutureNathan/valuemaps"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {t("aboutGithub")} <span className="about-arrow">→</span>
-                  </a>
-                  <a
-                    className="about-link"
-                    href="https://www.nathantowianski.com/index.html"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {t("aboutSite")} <span className="about-arrow">→</span>
-                  </a>
-                </div>
-              </div>
-            </div>
+          <section className="block about">
+            <span className="about-eyebrow">{t("aboutEyebrow")}</span>
+            <a
+              className="about-cta"
+              href="https://github.com/FutureNathan/valuemaps"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span className="about-star" aria-hidden="true">★</span>
+              {t("aboutCta")}
+            </a>
+            <p className="about-desc">{t("aboutDesc")}</p>
+            <p className="about-made">
+              {t("aboutMadePre")}{" "}
+              <span className="about-heart" aria-hidden="true">♥</span> {t("aboutBy")}{" "}
+              <a
+                className="about-name"
+                href="https://www.nathantowianski.com/index.html"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Nathan
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img className="about-astro" src="/astronaut.png" alt="" aria-hidden="true" />
+                <span className="about-ext" aria-hidden="true">↗</span>
+              </a>
+            </p>
+            <div className="about-build">build {BUILD}</div>
           </section>
         </div>
       </aside>

@@ -2,8 +2,8 @@
   <defs>
     <radialGradient id="s" cx="50%" cy="42%" r="62%">
       <stop offset="0%" stop-color="#ffffff" />
-      <stop offset="50%" stop-color="#ffb89e" />
-      <stop offset="100%" stop-color="#ff5026" />
+      <stop offset="55%" stop-color="#eef1f6" />
+      <stop offset="100%" stop-color="#cdd5e2" />
     </radialGradient>
   </defs>
   <path

@@ -301,21 +301,21 @@ export default function Globe({
     ctx.fillStyle = space;
     ctx.fillRect(0, 0, w, h);
 
-    // Stars.
+    // Stars — small, crisp and cool-white, with a faint halo on just a few.
     for (const s of v.stars) {
       if (s.bright) {
-        const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r * 4);
-        g.addColorStop(0, `rgba(255,243,233,${s.a})`);
-        g.addColorStop(1, "rgba(255,243,233,0)");
+        const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r * 3);
+        g.addColorStop(0, `rgba(214,226,245,${s.a * 0.5})`);
+        g.addColorStop(1, "rgba(214,226,245,0)");
         ctx.fillStyle = g;
         ctx.beginPath();
-        ctx.arc(s.x, s.y, s.r * 4, 0, Math.PI * 2);
+        ctx.arc(s.x, s.y, s.r * 3, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.globalAlpha = s.a;
       ctx.beginPath();
       ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-      ctx.fillStyle = "#f5efe8";
+      ctx.fillStyle = "#e8eefb";
       ctx.fill();
     }
     ctx.globalAlpha = 1;
@@ -331,13 +331,13 @@ export default function Globe({
         const ang = Math.atan2(sh.dy, sh.dx);
         const tx = hx - Math.cos(ang) * sh.len;
         const ty = hy - Math.sin(ang) * sh.len;
-        const a = Math.sin(t * Math.PI) * 0.9; // fade in then out
+        const a = Math.sin(t * Math.PI) * 0.8; // fade in then out
         const grad = ctx.createLinearGradient(tx, ty, hx, hy);
-        grad.addColorStop(0, "rgba(255,80,38,0)");
-        grad.addColorStop(0.65, `rgba(255,140,96,${a * 0.5})`);
-        grad.addColorStop(1, `rgba(255,244,236,${a})`);
+        grad.addColorStop(0, "rgba(220,232,250,0)");
+        grad.addColorStop(0.65, `rgba(225,235,250,${a * 0.45})`);
+        grad.addColorStop(1, `rgba(245,249,255,${a})`);
         ctx.strokeStyle = grad;
-        ctx.lineWidth = 1.6;
+        ctx.lineWidth = 1.4;
         ctx.lineCap = "round";
         ctx.beginPath();
         ctx.moveTo(tx, ty);
@@ -345,8 +345,8 @@ export default function Globe({
         ctx.stroke();
         ctx.globalAlpha = a;
         ctx.beginPath();
-        ctx.arc(hx, hy, 1.7, 0, Math.PI * 2);
-        ctx.fillStyle = "#fff6ef";
+        ctx.arc(hx, hy, 1.5, 0, Math.PI * 2);
+        ctx.fillStyle = "#f4f8ff";
         ctx.fill();
         ctx.globalAlpha = 1;
       }
@@ -411,12 +411,12 @@ export default function Globe({
     const projection = makeProjection();
     const path = geoPath(projection, ctx);
 
-    // Atmosphere.
-    const glow = ctx.createRadialGradient(cx, cy, r * 0.92, cx, cy, r * 1.16);
-    glow.addColorStop(0, `rgba(${p.style.atmosphere},0.26)`);
+    // Atmosphere — a thin, subtle halo (kept understated, not a heavy glow).
+    const glow = ctx.createRadialGradient(cx, cy, r * 0.97, cx, cy, r * 1.11);
+    glow.addColorStop(0, `rgba(${p.style.atmosphere},0.14)`);
     glow.addColorStop(1, `rgba(${p.style.atmosphere},0)`);
     ctx.beginPath();
-    ctx.arc(cx, cy, r * 1.16, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r * 1.11, 0, Math.PI * 2);
     ctx.fillStyle = glow;
     ctx.fill();
 
@@ -486,7 +486,7 @@ export default function Globe({
 
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(${p.style.atmosphere},0.4)`;
+    ctx.strokeStyle = `rgba(${p.style.atmosphere},0.22)`;
     ctx.lineWidth = 1;
     ctx.stroke();
 
@@ -688,12 +688,12 @@ export default function Globe({
       let s = 9301;
       const rnd = () => ((s = (s * 233280 + 49297) % 233280) / 233280);
       for (let i = 0; i < count; i++) {
-        const bright = rnd() > 0.93;
+        const bright = rnd() > 0.965;
         stars.push({
           x: rnd() * w,
           y: rnd() * h,
-          r: bright ? rnd() * 0.8 + 0.9 : rnd() * 0.9 + 0.25,
-          a: bright ? rnd() * 0.3 + 0.7 : rnd() * 0.45 + 0.18,
+          r: bright ? rnd() * 0.7 + 0.85 : rnd() * 0.7 + 0.3,
+          a: bright ? rnd() * 0.25 + 0.6 : rnd() * 0.4 + 0.16,
           bright,
         });
       }

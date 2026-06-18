@@ -77,7 +77,7 @@ export default function App() {
   const [metricId, setMetricId] = useState("ladder");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [autoRotate, setAutoRotate] = useState(false);
-  const [satellite, setSatellite] = useState(false);
+  const [satellite, setSatellite] = useState(true);
   const [overlay, setOverlay] = useState(0.5);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [lang, setLang] = useState<Lang>("en");
@@ -175,7 +175,7 @@ export default function App() {
       if (raw) setLocal(JSON.parse(raw) as LocalState);
     } catch {}
     try {
-      const prefs = JSON.parse(localStorage.getItem("valuemaps:prefs") || "{}");
+      const prefs = JSON.parse(localStorage.getItem("valuemaps:prefs:v2") || "{}");
       if (typeof prefs.satellite === "boolean") setSatellite(prefs.satellite);
       if (typeof prefs.autoRotate === "boolean") setAutoRotate(prefs.autoRotate);
       if (prefs.lang === "en" || prefs.lang === "es") setLang(prefs.lang);
@@ -317,7 +317,7 @@ export default function App() {
     if (!prefsLoaded.current) return;
     try {
       // overlay is intentionally not persisted — it always starts centered (50%).
-      localStorage.setItem("valuemaps:prefs", JSON.stringify({ satellite, autoRotate, lang }));
+      localStorage.setItem("valuemaps:prefs:v2", JSON.stringify({ satellite, autoRotate, lang }));
     } catch {}
   }, [satellite, autoRotate, lang]);
 

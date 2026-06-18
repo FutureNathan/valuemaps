@@ -100,6 +100,7 @@ export default function Globe({
 
   const dirty = useRef(true);
   const raf = useRef<number | null>(null);
+  const settleTimer = useRef<number | null>(null);
   const lastInteraction = useRef(0);
   const tween = useRef<{ from: [number, number, number]; to: [number, number, number]; start: number; dur: number } | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
@@ -181,7 +182,9 @@ export default function Globe({
     const rh = Math.min(v.height, Math.ceil(cy + r)) - ry;
     if (rw <= 0 || rh <= 0) return null;
     const q = moving ? 0.5 : Math.min(v.dpr, 2);
-    const maxPix = moving ? 200000 : 900000;
+    // While dragging, render a cheap low-res slice; once still, render a much
+    // sharper one (cached) so zoomed-in detail from the 4k texture comes through.
+    const maxPix = moving ? 200000 : 3500000;
     let ow = Math.max(1, Math.round(rw * q));
     let oh = Math.max(1, Math.round(rh * q));
     if (ow * oh > maxPix) {
@@ -500,6 +503,15 @@ export default function Globe({
     dirty.current = true;
     schedule();
   }
+  // After interaction stops, force one more draw so the sharp (non-"moving")
+  // high-resolution texture slice gets rendered and cached.
+  function settle() {
+    if (settleTimer.current != null) clearTimeout(settleTimer.current);
+    settleTimer.current = window.setTimeout(() => {
+      settleTimer.current = null;
+      requestRender();
+    }, 260);
+  }
 
   function loop(now: number) {
     raf.current = null;
@@ -580,6 +592,7 @@ export default function Globe({
           onInteractRef.current();
         }
         requestRender();
+        settle();
         return;
       }
 
@@ -595,6 +608,7 @@ export default function Globe({
       const k = 57.29577951 / (v.baseScale * v.zoom);
       v.rotation = [v.rotation[0] + dx * k, clamp(v.rotation[1] - dy * k, -89, 89), 0];
       requestRender();
+      settle();
     }
 
     function endTap(e: PointerEvent) {
@@ -637,6 +651,7 @@ export default function Globe({
       }
       lastInteraction.current = performance.now();
       schedule();
+      settle();
     }
 
     function onWheel(e: WheelEvent) {
@@ -647,6 +662,7 @@ export default function Globe({
       lastRotate.current = performance.now();
       onInteractRef.current();
       requestRender();
+      settle();
     }
 
     canvas.addEventListener("pointerdown", onDown);
@@ -683,7 +699,7 @@ export default function Globe({
       canvas!.style.width = w + "px";
       canvas!.style.height = h + "px";
 
-      const count = Math.round((w * h) / 5200);
+      const count = Math.round((w * h) / 2400);
       const stars = [];
       let s = 9301;
       const rnd = () => ((s = (s * 233280 + 49297) % 233280) / 233280);
@@ -801,6 +817,7 @@ export default function Globe({
   useEffect(() => {
     return () => {
       if (raf.current != null) cancelAnimationFrame(raf.current);
+      if (settleTimer.current != null) clearTimeout(settleTimer.current);
     };
   }, []);
 

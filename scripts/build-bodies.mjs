@@ -15,13 +15,14 @@ const COMPUTE = 512; // supersampled, then downscaled for crisp edges
 const OUT = 256;
 
 const BODIES = [
-  { id: "earth", url: "2k_earth_daymap.jpg", lon0: -32, lat0: 18, ambient: 0.4 },
-  { id: "moon", url: "2k_moon.jpg", lon0: 0, lat0: 0, ambient: 0.32 },
-  { id: "mars", url: "2k_mars.jpg", lon0: -60, lat0: 6, ambient: 0.36 },
+  { id: "earth", url: "8k_earth_daymap.jpg", lon0: -32, lat0: 18, ambient: 0.4 },
+  { id: "moon", url: "8k_moon.jpg", lon0: 0, lat0: 0, ambient: 0.32 },
+  { id: "mars", url: "8k_mars.jpg", lon0: -60, lat0: 6, ambient: 0.36 },
 ];
-// Solar System Scope textures (CC BY 4.0, based on NASA imagery), 2048x1024.
+// Solar System Scope textures (CC BY 4.0, based on NASA imagery), 8192x4096,
+// pulled from a public mirror (Git LFS media endpoint).
 const BASE =
-  "https://raw.githubusercontent.com/LamperougeLelouch/MiniProject/master/MiniProjectPhysicsGithubUnity/Assets/PlanetTextures/";
+  "https://media.githubusercontent.com/media/computationalcore/worldline-kinematics/bda6e586435fc5956b3a350bde88766a14e3b7b6/apps/web/public/textures/";
 
 const D = Math.PI / 180;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -112,17 +113,17 @@ async function render(body) {
   console.log(`  wrote public/body-${body.id}.png (${OUT}x${OUT})`);
 
   // Equirectangular textures for the interactive "satellite" overlay, in two
-  // tiers: a small one for an instant first paint, and a 2k one that the client
-  // swaps in progressively for crisp detail.
+  // tiers: a small one for an instant first paint, and a 4k one that the client
+  // swaps in progressively for crisp detail when zoomed in.
   await sharp(map.buf)
     .resize(1024, 512, { fit: "fill" })
-    .jpeg({ quality: 80 })
+    .jpeg({ quality: 82, mozjpeg: true })
     .toFile(join(PUBLIC, `tex-${body.id}.jpg`));
   await sharp(map.buf)
-    .resize(2048, 1024, { fit: "fill" })
-    .jpeg({ quality: 80 })
+    .resize(4096, 2048, { fit: "fill" })
+    .jpeg({ quality: 82, mozjpeg: true })
     .toFile(join(PUBLIC, `tex-${body.id}-hi.jpg`));
-  console.log(`  wrote public/tex-${body.id}.jpg (1024x512) + -hi (2048x1024)`);
+  console.log(`  wrote public/tex-${body.id}.jpg (1024x512) + -hi (4096x2048)`);
 }
 
 async function main() {

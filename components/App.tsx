@@ -486,7 +486,7 @@ export default function App() {
                 referenceData={referenceData}
                 agg={selectedAgg}
                 lang={lang}
-                limit={3}
+                limit={2}
               />
             </div>
           </div>

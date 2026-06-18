@@ -88,7 +88,7 @@ button {
   border-top: 1px solid var(--border);
   border-radius: 18px 18px 0 0;
   box-shadow: 0 -12px 50px rgba(0, 0, 0, 0.6);
-  transform: translateY(calc(100% - 148px));
+  transform: translateY(calc(100% - 104px));
   transition: transform 0.28s ease, opacity 0.2s ease;
 }
 
@@ -313,7 +313,7 @@ button {
 /* Mobile bottom-sheet peek: show the mini-legend instead of the brand. */
 @media (max-width: 767px) {
   .sidebar:not(.open) .sidebar-head {
-    height: 148px;
+    height: 104px;
     align-items: flex-start;
     overflow: hidden;
   }
@@ -1182,8 +1182,9 @@ button {
 @media (max-width: 767px) {
   .earth-toggle {
     bottom: auto;
-    top: 14px;
-    right: 14px;
+    top: 12px;
+    left: 12px;
+    right: auto;
     font-size: 12px;
     padding: 9px 12px;
   }

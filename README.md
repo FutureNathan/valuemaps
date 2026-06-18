@@ -1,5 +1,9 @@
 # Value Maps 🌍🌑🔴
 
+![Value Maps](app/opengraph-image.jpg)
+
+**Live: [values.manaolanacity.com](https://values.manaolanacity.com)**
+
 A spinnable 3D globe of **what the world actually wants** — without forcing
 anyone onto a left–right line.
 
@@ -145,3 +149,14 @@ approximate real coordinates. Planet textures (travel bodies + satellite mode)
 are [Solar System Scope](https://www.solarsystemscope.com/textures/) maps
 (CC BY 4.0, based on NASA imagery), projected to spheres at build time and served
 in a fast low-res tier plus a 2k tier the client upgrades to progressively.
+
+## Contributing
+
+Contributions and ideas are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+Most content lives in one place each: wants in `lib/values.ts`, data sources in
+`lib/sources.ts`, translations in `lib/i18n.ts`, worlds in `lib/worlds.ts`.
+
+## License
+
+[MIT](LICENSE) © Nathan Towianski. Data and texture sources retain their own
+licenses (linked above).

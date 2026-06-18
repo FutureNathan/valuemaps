@@ -82,6 +82,8 @@ export default function App() {
   const [autoRotate, setAutoRotate] = useState(false);
   const [satellite, setSatellite] = useState(true);
   const [hideData, setHideData] = useState(false);
+  const [earthQuality, setEarthQuality] = useState<"fast" | "ultra">("ultra");
+  const [qualityAsk, setQualityAsk] = useState(false);
   const [geo, setGeo] = useState<{ lat: number; lng: number } | null>(null);
   const [overlay, setOverlay] = useState(0.5);
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -193,6 +195,7 @@ export default function App() {
     try {
       const prefs = JSON.parse(localStorage.getItem("valuemaps:prefs:v2") || "{}");
       if (typeof prefs.satellite === "boolean") setSatellite(prefs.satellite);
+      if (prefs.earthQuality === "fast" || prefs.earthQuality === "ultra") setEarthQuality(prefs.earthQuality);
       if (typeof prefs.autoRotate === "boolean") setAutoRotate(prefs.autoRotate);
       if (prefs.lang === "en" || prefs.lang === "es") setLang(prefs.lang);
       else if (window.navigator?.language?.toLowerCase().startsWith("es")) setLang("es");
@@ -349,9 +352,9 @@ export default function App() {
     if (!prefsLoaded.current) return;
     try {
       // overlay is intentionally not persisted — it always starts centered (50%).
-      localStorage.setItem("valuemaps:prefs:v2", JSON.stringify({ satellite, autoRotate, lang }));
+      localStorage.setItem("valuemaps:prefs:v2", JSON.stringify({ satellite, autoRotate, lang, earthQuality }));
     } catch {}
-  }, [satellite, autoRotate, lang]);
+  }, [satellite, autoRotate, lang, earthQuality]);
 
   function onSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
@@ -434,16 +437,48 @@ export default function App() {
           tileUrl={showEarth && worldId === "earth" ? EARTH_TILES : null}
           overlay={overlay}
           hideData={hideData}
+          wideTiles={hideData && earthQuality === "ultra"}
         />
         {loading && <div className="loading">Loading {world.name}…</div>}
         <button
           className={`earth-toggle ${hideData ? "on" : ""}`}
-          onClick={() => setHideData((v) => !v)}
+          onClick={() => (hideData ? setHideData(false) : setQualityAsk(true))}
         >
           <GlobeIcon />
           {hideData ? t("showData") : t("beautifulHome")}
         </button>
       </div>
+
+      {qualityAsk && (
+        <div className="quality-backdrop" onClick={() => setQualityAsk(false)}>
+          <div className="quality-pop" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <h2>{t("qualityTitle")}</h2>
+            <p className="quality-sub">{t("qualitySub")}</p>
+            <button
+              className="quality-opt"
+              onClick={() => {
+                setEarthQuality("ultra");
+                setQualityAsk(false);
+                setHideData(true);
+              }}
+            >
+              <span className="quality-opt-name">{t("qualityUltra")}</span>
+              <span className="quality-opt-desc">{t("qualityUltraDesc")}</span>
+            </button>
+            <button
+              className="quality-opt"
+              onClick={() => {
+                setEarthQuality("fast");
+                setQualityAsk(false);
+                setHideData(true);
+              }}
+            >
+              <span className="quality-opt-name">{t("qualityFast")}</span>
+              <span className="quality-opt-desc">{t("qualityFastDesc")}</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {collapsed && !hideData && (
         <button

@@ -48,6 +48,7 @@ interface GlobeProps {
   tileUrl: string | null;
   overlay: number;
   hideData: boolean;
+  wideTiles: boolean;
 }
 
 const MIN_ZOOM = 0.85;
@@ -100,6 +101,7 @@ export default function Globe({
   tileUrl,
   overlay,
   hideData,
+  wideTiles,
 }: GlobeProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -120,8 +122,8 @@ export default function Globe({
     haze: { lon: number; sinLat: number; cosLat: number; r: number; a: number }[];
   } | null>(null);
 
-  const propsRef = useRef({ features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc, tileUrl, overlay, hideData });
-  propsRef.current = { features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc, tileUrl, overlay, hideData };
+  const propsRef = useRef({ features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc, tileUrl, overlay, hideData, wideTiles });
+  propsRef.current = { features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc, tileUrl, overlay, hideData, wideTiles };
 
   // Satellite map tiles for deep zoom (Earth). Decoded RGBA kept in an LRU cache.
   const tileCache = useRef(new Map<string, { data?: Uint8ClampedArray; state: "loading" | "ok" | "err" }>());
@@ -200,21 +202,21 @@ export default function Globe({
       });
     }
     // Denser river of stars along the (tilted) galactic band.
-    for (let i = 0; i < 1500; i++) {
-      const pos = place(rnd() * 360 - 180, gauss() * 11);
-      const bright = rnd() > 0.985;
+    for (let i = 0; i < 2000; i++) {
+      const pos = place(rnd() * 360 - 180, gauss() * 10);
+      const bright = rnd() > 0.984;
       stars.push({
         ...pos,
-        r: bright ? rnd() * 0.7 + 0.8 : rnd() * 0.6 + 0.3,
-        a: bright ? rnd() * 0.3 + 0.5 : rnd() * 0.35 + 0.14,
+        r: bright ? rnd() * 0.7 + 0.85 : rnd() * 0.6 + 0.32,
+        a: bright ? rnd() * 0.32 + 0.55 : rnd() * 0.38 + 0.18,
         bright,
       });
     }
     // Soft haze blobs giving the band its milky glow.
     const haze: { lon: number; sinLat: number; cosLat: number; r: number; a: number }[] = [];
-    for (let i = 0; i < 54; i++) {
+    for (let i = 0; i < 82; i++) {
       const pos = place(rnd() * 360 - 180, gauss() * 7);
-      haze.push({ ...pos, r: rnd() * 60 + 46, a: rnd() * 0.05 + 0.035 });
+      haze.push({ ...pos, r: rnd() * 70 + 50, a: rnd() * 0.07 + 0.05 });
     }
     sky.current = { stars, haze };
   }
@@ -336,7 +338,9 @@ export default function Globe({
     }
     const key = `${v.rotation[0].toFixed(1)},${v.rotation[1].toFixed(1)},${v.zoom.toFixed(
       3
-    )},${rx},${ry},${rw},${rh},${ow},${oh},${moving ? 0 : 1},${tex.w}`;
+    )},${rx},${ry},${rw},${rh},${ow},${oh},${moving ? 0 : 1},${tex.w},${
+      propsRef.current.wideTiles ? 1 : 0
+    }`;
     let tc = texCanvas.current;
     if (tc && lastTexKey.current === key) return { canvas: tc, rx, ry, rw, rh };
     if (!tc) {
@@ -357,11 +361,15 @@ export default function Globe({
     const pt: [number, number] = [0, 0];
     const smooth = !moving;
 
-    // --- Satellite map tiles for deep zoom (Earth) ---
-    // Pick the slippy zoom whose tile resolution matches the on-screen scale,
-    // find which tiles the current view touches, gather the loaded ones and
-    // request the rest. Pixels without a loaded tile fall back to the base map.
+    // --- Satellite map tiles (Earth) ---
+    // Pick a slippy zoom matched to the on-screen scale, find which tiles the
+    // view touches, gather loaded ones and request the rest; pixels without a
+    // loaded tile fall back to the base map. With wideTiles ("most beautiful")
+    // imagery lights up from much farther out — when the whole hemisphere is in
+    // view we step to a coarser zoom so the tile count stays bounded.
     const template = propsRef.current.tileUrl;
+    const wide = propsRef.current.wideTiles;
+    const minTz = wide ? 3 : 5;
     let grid: (Uint8ClampedArray | undefined)[] | null = null;
     let ntiles = 0;
     let txMin = 0;
@@ -370,14 +378,16 @@ export default function Globe({
     let gh = 0;
     if (smooth && template) {
       const rdev = r * q;
-      let tz = Math.round(Math.log2((2 * Math.PI * rdev) / TILE_SIZE));
-      tz = Math.max(0, Math.min(TILE_Z_MAX, tz));
-      if (tz >= 5) {
-        ntiles = 2 ** tz;
-        let fxMin = Infinity;
-        let fxMax = -Infinity;
-        let fyMin = Infinity;
-        let fyMax = -Infinity;
+      const naturalTz = Math.max(
+        0,
+        Math.min(TILE_Z_MAX, Math.round(Math.log2((2 * Math.PI * rdev) / TILE_SIZE)))
+      );
+      if (naturalTz >= minTz) {
+        // One coarse pass for the visible mercator bounds (normalized 0..1).
+        let mxMin = Infinity;
+        let mxMax = -Infinity;
+        let myMin = Infinity;
+        let myMax = -Infinity;
         const step = Math.max(1, Math.floor(Math.min(ow, oh) / 40));
         for (let j = 0; j < oh; j += step) {
           const sy = ry + ((j + 0.5) / oh) * rh;
@@ -391,20 +401,36 @@ export default function Globe({
             const ll = invert(pt);
             if (!ll || Number.isNaN(ll[0])) continue;
             const m = lonLatToMercator(ll[0], ll[1]);
-            const fx = m[0] * ntiles;
-            const fy = m[1] * ntiles;
-            if (fx < fxMin) fxMin = fx;
-            if (fx > fxMax) fxMax = fx;
-            if (fy < fyMin) fyMin = fy;
-            if (fy > fyMax) fyMax = fy;
+            if (m[0] < mxMin) mxMin = m[0];
+            if (m[0] > mxMax) mxMax = m[0];
+            if (m[1] < myMin) myMin = m[1];
+            if (m[1] > myMax) myMax = m[1];
           }
         }
-        if (fxMax >= fxMin) {
-          txMin = Math.floor(fxMin);
-          tyMin = Math.floor(fyMin);
-          gw = Math.floor(fxMax) - txMin + 1;
-          gh = Math.floor(fyMax) - tyMin + 1;
-          if (gw > 0 && gh > 0 && gw * gh <= MAX_TILES_PER_FRAME) {
+        if (mxMax >= mxMin) {
+          // Finest zoom whose tile count fits; wideTiles may step down for wide
+          // views, otherwise only the natural zoom is considered.
+          let tz = naturalTz;
+          for (; tz >= minTz; tz--) {
+            const n = 2 ** tz;
+            const w0 = Math.floor(mxMin * n);
+            const h0 = Math.floor(myMin * n);
+            const cw = Math.floor(mxMax * n) - w0 + 1;
+            const ch = Math.floor(myMax * n) - h0 + 1;
+            if (cw > 0 && ch > 0 && cw * ch <= MAX_TILES_PER_FRAME) {
+              ntiles = n;
+              txMin = w0;
+              tyMin = h0;
+              gw = cw;
+              gh = ch;
+              break;
+            }
+            if (!wide) {
+              tz = minTz - 1; // non-wide never steps down; just skip tiles
+              break;
+            }
+          }
+          if (tz >= minTz && gw > 0) {
             grid = new Array(gw * gh);
             for (let ty = tyMin; ty < tyMin + gh; ty++) {
               if (ty < 0 || ty >= ntiles) continue;
@@ -419,8 +445,6 @@ export default function Globe({
                 }
               }
             }
-          } else {
-            grid = null;
           }
         }
       }
@@ -1034,7 +1058,7 @@ export default function Globe({
 
   useEffect(() => {
     requestRender();
-  }, [features, borders, colorForId, selectedId, style, backgroundBodies, textureSrc, tileUrl, overlay, hideData]);
+  }, [features, borders, colorForId, selectedId, style, backgroundBodies, textureSrc, tileUrl, overlay, hideData, wideTiles]);
 
   // Load the equirectangular texture for "satellite" mode and grab its pixels.
   useEffect(() => {

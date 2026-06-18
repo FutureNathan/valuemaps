@@ -3,7 +3,7 @@ import "./globals.css";
 
 // Absolute URLs for og:image etc. Uses the Vercel production domain in prod,
 // or set NEXT_PUBLIC_SITE_URL to your custom domain.
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://values.manaolanacity.com";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://values.nathantowianski.com";
 
 const description =
   "Pick what you want for where you live — even hopes they say you can't have together. A 3D globe of the world's values, with real open data, across Earth, the Moon and Mars.";

@@ -2,7 +2,7 @@
 
 ![Value Maps](app/opengraph-image.jpg)
 
-**Live: [values.manaolanacity.com](https://values.manaolanacity.com)**
+**Live: [values.nathantowianski.com](https://values.nathantowianski.com)**
 
 A spinnable 3D globe of **what the world actually wants** — without forcing
 anyone onto a left–right line.

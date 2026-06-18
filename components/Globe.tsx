@@ -47,6 +47,7 @@ interface GlobeProps {
   textureSrc: string | null;
   tileUrl: string | null;
   overlay: number;
+  hideData: boolean;
 }
 
 const MIN_ZOOM = 0.85;
@@ -98,6 +99,7 @@ export default function Globe({
   textureSrc,
   tileUrl,
   overlay,
+  hideData,
 }: GlobeProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -112,8 +114,8 @@ export default function Globe({
     stars: [] as { x: number; y: number; r: number; a: number; bright: boolean }[],
   });
 
-  const propsRef = useRef({ features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc, tileUrl, overlay });
-  propsRef.current = { features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc, tileUrl, overlay };
+  const propsRef = useRef({ features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc, tileUrl, overlay, hideData });
+  propsRef.current = { features, borders, colorForId, selectedId, autoRotate, style, backgroundBodies, textureSrc, tileUrl, overlay, hideData };
 
   // Satellite map tiles for deep zoom (Earth). Decoded RGBA kept in an LRU cache.
   const tileCache = useRef(new Map<string, { data?: Uint8ClampedArray; state: "loading" | "ok" | "err" }>());
@@ -611,7 +613,7 @@ export default function Globe({
       ctx.fill();
     }
 
-    if (p.style.graticule && !tc) {
+    if (p.style.graticule && !tc && !p.hideData) {
       ctx.beginPath();
       path(geoGraticule10());
       ctx.strokeStyle = "rgba(255,255,255,0.05)";
@@ -620,40 +622,43 @@ export default function Globe({
     }
 
     // Regions / countries, colored by the active metric (translucent over texture).
-    // Over imagery, fade the data tint out as you zoom in so deep zooms show the
-    // real ground; at normal zoom the value map reads as before.
-    const zoomFade = clamp(1 - (v.zoom - 10) / 12, 0, 1);
-    const fillAlpha = tc ? Math.max(0, Math.min(1, p.overlay)) * zoomFade : 1;
-    for (const f of p.features) {
-      ctx.beginPath();
-      path(f);
-      ctx.globalAlpha = fillAlpha;
-      ctx.fillStyle = p.colorForId(String(f.id));
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      if (p.style.outlineFeatures) {
-        ctx.strokeStyle = tc ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.22)";
-        ctx.lineWidth = 0.6;
+    // "Beautiful home" mode (hideData) skips every overlay for a clean Earth.
+    if (!p.hideData) {
+      // Over imagery, fade the data tint out as you zoom in so deep zooms show the
+      // real ground; at normal zoom the value map reads as before.
+      const zoomFade = clamp(1 - (v.zoom - 10) / 12, 0, 1);
+      const fillAlpha = tc ? Math.max(0, Math.min(1, p.overlay)) * zoomFade : 1;
+      for (const f of p.features) {
+        ctx.beginPath();
+        path(f);
+        ctx.globalAlpha = fillAlpha;
+        ctx.fillStyle = p.colorForId(String(f.id));
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        if (p.style.outlineFeatures) {
+          ctx.strokeStyle = tc ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.22)";
+          ctx.lineWidth = 0.6;
+          ctx.stroke();
+        }
+      }
+
+      if (p.borders) {
+        ctx.beginPath();
+        path(p.borders);
+        ctx.strokeStyle = tc ? "rgba(255,255,255,0.5)" : "rgba(5,9,16,0.55)";
+        ctx.lineWidth = tc ? 0.6 : 0.5;
         ctx.stroke();
       }
-    }
 
-    if (p.borders) {
-      ctx.beginPath();
-      path(p.borders);
-      ctx.strokeStyle = tc ? "rgba(255,255,255,0.5)" : "rgba(5,9,16,0.55)";
-      ctx.lineWidth = tc ? 0.6 : 0.5;
-      ctx.stroke();
-    }
-
-    if (p.selectedId) {
-      const sel = p.features.find((f) => String(f.id) === p.selectedId);
-      if (sel) {
-        ctx.beginPath();
-        path(sel);
-        ctx.strokeStyle = "rgba(255,255,255,0.95)";
-        ctx.lineWidth = 1.75;
-        ctx.stroke();
+      if (p.selectedId) {
+        const sel = p.features.find((f) => String(f.id) === p.selectedId);
+        if (sel) {
+          ctx.beginPath();
+          path(sel);
+          ctx.strokeStyle = "rgba(255,255,255,0.95)";
+          ctx.lineWidth = 1.75;
+          ctx.stroke();
+        }
       }
     }
 
@@ -936,7 +941,7 @@ export default function Globe({
 
   useEffect(() => {
     requestRender();
-  }, [features, borders, colorForId, selectedId, style, backgroundBodies, textureSrc, tileUrl, overlay]);
+  }, [features, borders, colorForId, selectedId, style, backgroundBodies, textureSrc, tileUrl, overlay, hideData]);
 
   // Load the equirectangular texture for "satellite" mode and grab its pixels.
   useEffect(() => {

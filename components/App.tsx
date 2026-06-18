@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { feature, mesh } from "topojson-client";
-import { geoCentroid } from "d3-geo";
+import { geoCentroid, geoContains } from "d3-geo";
 import type { Feature, FeatureCollection, GeoJsonProperties, Geometry } from "geojson";
 import Globe, { type BackgroundBody, type FocusTarget } from "./Globe";
 import ValueForm from "./ValueForm";
@@ -81,6 +81,8 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [autoRotate, setAutoRotate] = useState(false);
   const [satellite, setSatellite] = useState(true);
+  const [hideData, setHideData] = useState(false);
+  const [geo, setGeo] = useState<{ lat: number; lng: number } | null>(null);
   const [overlay, setOverlay] = useState(0.5);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [lang, setLang] = useState<Lang>("en");
@@ -95,6 +97,7 @@ export default function App() {
   worldIdRef.current = worldId;
   const loadedWorlds = useRef<Set<string>>(new Set(["earth"]));
   const prefsLoaded = useRef(false);
+  const autoLocated = useRef(false);
   const headDrag = useRef<{ x: number; y: number } | null>(null);
 
   const world = WORLD_BY_ID[worldId];
@@ -173,6 +176,16 @@ export default function App() {
 
     loadAggregates("earth");
 
+    // Best-effort guess of where the visitor is, to preselect their country.
+    fetch("/api/geo")
+      .then((r) => r.json())
+      .then((d) => {
+        if (typeof d?.lat === "number" && typeof d?.lng === "number") {
+          setGeo({ lat: d.lat, lng: d.lng });
+        }
+      })
+      .catch(() => {});
+
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) setLocal(JSON.parse(raw) as LocalState);
@@ -187,6 +200,22 @@ export default function App() {
     prefsLoaded.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Once we know roughly where the visitor is (and Earth's geometry is loaded),
+  // preselect the country they're in and gently rotate the globe there — unless
+  // they've already picked somewhere themselves.
+  useEffect(() => {
+    if (autoLocated.current || !geo || worldId !== "earth" || selectedId) return;
+    const feats = earthRef.current?.features;
+    if (!feats || feats.length === 0) return;
+    const hit = feats.find((f) => geoContains(f, [geo.lng, geo.lat]));
+    if (!hit) return;
+    autoLocated.current = true;
+    const id = String(hit.id);
+    setSelectedId(id);
+    const c = centroidsRef.current.get(id);
+    if (c) setFocus({ lng: c[0], lat: c[1], nonce: Date.now() });
+  }, [geo, geoVersion, worldId, selectedId]);
 
   const realFor = useCallback(
     (id: string): Aggregate | undefined => {
@@ -380,6 +409,9 @@ export default function App() {
   const selName = selectedId ? namesRef.current.get(selectedId) ?? null : null;
   const selectedAgg = selectedId ? realFor(selectedId) : undefined;
   const loading = features.length === 0;
+  // "Beautiful home" mode shows the imagery globe with no data overlays; force
+  // the texture on so it's always the pretty Earth even if satellite was off.
+  const showEarth = satellite || hideData;
 
   return (
     <div className="app">
@@ -398,14 +430,22 @@ export default function App() {
           onSwitchWorld={switchWorld}
           onInteract={handleInteract}
           initialRotation={world.initialRotation}
-          textureSrc={satellite ? `/tex-${worldId}.jpg` : null}
-          tileUrl={satellite && worldId === "earth" ? EARTH_TILES : null}
+          textureSrc={showEarth ? `/tex-${worldId}.jpg` : null}
+          tileUrl={showEarth && worldId === "earth" ? EARTH_TILES : null}
           overlay={overlay}
+          hideData={hideData}
         />
         {loading && <div className="loading">Loading {world.name}…</div>}
+        <button
+          className={`earth-toggle ${hideData ? "on" : ""}`}
+          onClick={() => setHideData((v) => !v)}
+        >
+          <span className="earth-toggle-dot" aria-hidden="true" />
+          {hideData ? t("showData") : t("beautifulHome")}
+        </button>
       </div>
 
-      {collapsed && (
+      {collapsed && !hideData && (
         <button
           className="sidebar-open-btn"
           onClick={() => setCollapsed(false)}
